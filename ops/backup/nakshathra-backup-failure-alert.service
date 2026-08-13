@@ -1,0 +1,17 @@
+[Unit]
+Description=Alert when Nakshathra MongoDB backup fails
+# Wired via OnFailure= on nakshathra-mongodb-backup.service.
+# Before go-live, replace ExecStart with a real external channel (email/SMS/Slack/PagerDuty).
+
+[Service]
+Type=oneshot
+EnvironmentFile=-/etc/nakshathra/mongodb-backup.env
+# Local journal fallback (always):
+ExecStart=/bin/bash -c 'logger -t nakshathra-backup "BACKUP FAILED on $(hostname); check journalctl -u nakshathra-mongodb-backup.service"'
+# External alert (configure on host — uncomment one):
+# ExecStart=/usr/local/bin/nakshathra-notify.sh "MongoDB backup failed on %H"
+# ExecStart=/bin/bash -c 'curl -fsS -X POST -H "Content-Type: application/json" -d "{\"text\":\"Nakshathra MongoDB backup FAILED on $(hostname)\"}" "$BACKUP_ALERT_WEBHOOK_URL"'
+# ExecStart=/bin/bash -c 'printf "Subject: Nakshathra backup FAILED\\n\\nHost=$(hostname)\\n" | sendmail -t "$BACKUP_ALERT_EMAIL"'
+
+[Install]
+WantedBy=multi-user.target

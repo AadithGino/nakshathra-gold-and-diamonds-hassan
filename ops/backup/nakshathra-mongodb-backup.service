@@ -1,0 +1,19 @@
+[Unit]
+Description=Nakshathra MongoDB daily backup
+After=network-online.target
+Wants=network-online.target
+# Wire this to a host alert unit (email/PagerDuty). Do not rely on the API process.
+OnFailure=nakshathra-backup-failure-alert.service
+
+[Service]
+Type=oneshot
+# Protected env file (mode 0600, root-owned) holds MONGODB_BACKUP_URI — never commit it.
+EnvironmentFile=-/etc/nakshathra/mongodb-backup.env
+WorkingDirectory=/opt/nakshathra/api
+ExecStart=/opt/nakshathra/api/ops/backup/backup-mongodb.sh
+ExecStartPost=/opt/nakshathra/api/ops/backup/apply-retention.sh
+Nice=10
+# Do not embed secrets in unit files; use EnvironmentFile with 0600 perms.
+
+[Install]
+WantedBy=multi-user.target

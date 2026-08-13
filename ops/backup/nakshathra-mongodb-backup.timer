@@ -1,0 +1,11 @@
+[Unit]
+Description=Run Nakshathra MongoDB backup daily at 02:30 Asia/Kolkata
+
+[Timer]
+OnCalendar=*-*-* 02:30:00
+Persistent=true
+Unit=nakshathra-mongodb-backup.service
+# Host timezone should be Asia/Kolkata, or convert OnCalendar accordingly.
+
+[Install]
+WantedBy=timers.target
