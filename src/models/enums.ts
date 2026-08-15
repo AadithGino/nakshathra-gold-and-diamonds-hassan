@@ -100,14 +100,22 @@ export const CAP_STRATEGIES = ['AVERAGE_SUCCESSFUL_PAYMENT_FIRST_6', 'NONE'] as 
 export type CapStrategy = (typeof CAP_STRATEGIES)[number];
 export const PAYMENT_WINDOW_TYPES = ['FIXED_DAY', 'DATE_RANGE'] as const;
 export type PaymentWindowType = (typeof PAYMENT_WINDOW_TYPES)[number];
-export const SETTLEMENT_ASSETS = ['GOLD', 'CASH'] as const;
+export const SETTLEMENT_ASSETS = ['GOLD', 'CASH', 'JEWELLERY'] as const;
 export type SettlementAsset = (typeof SETTLEMENT_ASSETS)[number];
+export const SETTLEMENT_MODES = ['CASH', 'JEWELLERY'] as const;
+export type SettlementMode = (typeof SETTLEMENT_MODES)[number];
+export const REDEMPTION_TYPES = ['EARLY', 'MATURITY'] as const;
+export type RedemptionType = (typeof REDEMPTION_TYPES)[number];
+export const JEWELLERY_EXTRA_PAYMENT_METHODS = ['CASH', 'UPI', 'CARD', 'BANK'] as const;
+export type JewelleryExtraPaymentMethod = (typeof JEWELLERY_EXTRA_PAYMENT_METHODS)[number];
 export const CASH_SETTLEMENT_BASES = ['CONTRIBUTION_VALUE', 'CURRENT_GOLD_VALUE'] as const;
 export type CashSettlementBasis = (typeof CASH_SETTLEMENT_BASES)[number];
 export const PAYOUT_TYPES = ['PAYOUT', 'REDEEM', 'PREMATURE_CLOSE'] as const;
 export type PayoutType = (typeof PAYOUT_TYPES)[number];
-export const PAYOUT_METHODS = ['GOLD', 'CASH', 'BANK', 'UPI'] as const;
+export const PAYOUT_METHODS = ['GOLD', 'CASH', 'BANK', 'UPI', 'JEWELLERY'] as const;
 export type PayoutMethod = (typeof PAYOUT_METHODS)[number];
+export const CASH_DISBURSEMENT_METHODS = ['CASH', 'BANK', 'UPI'] as const;
+export type CashDisbursementMethod = (typeof CASH_DISBURSEMENT_METHODS)[number];
 export const ENROLLMENT_STATUSES = [
   'ACTIVE',
   'MATURED',

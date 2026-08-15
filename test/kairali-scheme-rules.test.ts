@@ -74,23 +74,31 @@ describe('Kairali scheme invariants', () => {
     expect(goldWeightMg(100_000, 750_000)).toBe(133);
   });
 
-  it('rejects plans or enrollments below ₹1,000', () => {
+  it('rejects plans or enrollments below ₹100', () => {
     const invalidPlan = createSchemePlanSchema.safeParse({
       name: 'Nakshathra Cash Savings',
       type: 'CASH',
       durationMonths: 11,
-      minimumPaymentPaise: 99_999,
+      minimumPaymentPaise: 9_999,
       termsText: 'Eleven fixed installments and redemption in month twelve.',
     });
     const invalidEnrollment = createEnrollmentSchema.safeParse({
       customerId: 'customer-id',
       schemePlanId: 'plan-id',
       startDate: '2026-01-01',
-      monthlyInstallmentPaise: 99_999,
+      monthlyInstallmentPaise: 9_999,
+    });
+    const validPlan = createSchemePlanSchema.safeParse({
+      name: 'Nakshathra Cash Savings',
+      type: 'CASH',
+      durationMonths: 11,
+      minimumPaymentPaise: 10_000,
+      termsText: 'Eleven fixed installments and redemption in month twelve.',
     });
 
     expect(invalidPlan.success).toBe(false);
     expect(invalidEnrollment.success).toBe(false);
+    expect(validPlan.success).toBe(true);
   });
 
   it('supports CASH PAYOUT and GOLD_WEIGHT REDEEM, and rejects unknown cashout types', () => {

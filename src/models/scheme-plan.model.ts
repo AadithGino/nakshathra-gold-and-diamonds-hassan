@@ -3,6 +3,8 @@ import {
   NAKSHATHRA_CAPPED_MONTHS,
   NAKSHATHRA_DURATION_MONTHS,
   NAKSHATHRA_FLEXIBLE_MONTHS,
+  NAKSHATHRA_MINIMUM_PAYMENT_PAISE,
+  NAKSHATHRA_PREMATURE_CLOSURE_MIN_ELAPSED_MONTHS,
   NAKSHATHRA_REDEMPTION_MONTH,
 } from '../config/business.js';
 import { createSchema, objectIdField, registerModel } from './model-helpers.js';
@@ -53,7 +55,12 @@ const schemePlanSchema = createSchema({
     type: Number,
     min: 1,
   },
-  minimumPaymentPaise: { type: Number, required: true, min: 100_000, default: 100_000 },
+  minimumPaymentPaise: {
+    type: Number,
+    required: true,
+    min: NAKSHATHRA_MINIMUM_PAYMENT_PAISE,
+    default: NAKSHATHRA_MINIMUM_PAYMENT_PAISE,
+  },
   makingChargeWaiverPercent: { type: Number, required: true, min: 100, max: 100, default: 100 },
   gstRateBasisPoints: { type: Number, required: true, min: 300, max: 300, default: 300 },
   makingChargeBenefit: String,
@@ -72,6 +79,7 @@ const schemePlanSchema = createSchema({
   paymentWindowEndDay: { type: Number, min: 1, max: 31 },
   prematureClosureEnabled: { type: Boolean, default: true },
   prematureClosureMinPaidInstallments: { type: Number, min: 1, max: 11, default: 1 },
+  prematureClosureMinElapsedMonths: { type: Number, min: 1, max: 11 },
   prematureClosureSettlementAssets: {
     type: [{ type: String, enum: SETTLEMENT_ASSETS }],
     default: () => ['GOLD', 'CASH'],
@@ -129,7 +137,8 @@ schemePlanSchema.pre('validate', function validateNakshathraSchemeWindow(this: a
       );
     }
     this.prematureClosureSettlementAssets = ['CASH'];
-    this.maturitySettlementAssets = ['CASH'];
+    this.maturitySettlementAssets = ['CASH', 'JEWELLERY'];
+    this.prematureClosureMinElapsedMonths = NAKSHATHRA_PREMATURE_CLOSURE_MIN_ELAPSED_MONTHS;
     this.prematureClosureCashBasis = 'CONTRIBUTION_VALUE';
     this.maturityCashBasis = 'CONTRIBUTION_VALUE';
   }

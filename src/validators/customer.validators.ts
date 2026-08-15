@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { indianPhoneSchema, optionalIndianPhoneSchema } from "./phone.schema.js";
+import { NAKSHATHRA_MINIMUM_PAYMENT_PAISE } from "../config/business.js";
 
 const aadhaarKeysSchema = z
   .object({
@@ -25,7 +26,7 @@ export const createCustomerSchema = z.object({
     .object({
       schemePlanId: z.string().min(1),
       startDate: z.coerce.date(),
-      monthlyInstallmentPaise: z.number().int().min(100_000),
+      monthlyInstallmentPaise: z.number().int().min(NAKSHATHRA_MINIMUM_PAYMENT_PAISE),
     })
     .optional(),
 });

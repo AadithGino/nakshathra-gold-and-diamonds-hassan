@@ -1,6 +1,7 @@
 import mongoose, { type ClientSession } from 'mongoose';
 import { addMonths } from 'date-fns';
 import { fromZonedTime, toZonedTime } from 'date-fns-tz';
+import { NAKSHATHRA_MINIMUM_PAYMENT_PAISE } from '../config/business.js';
 import { AppError } from '../utils/AppError.js';
 import { paise } from '../utils/money.js';
 import { GoldRate, Payment, SchemeEnrollment } from '../models/index.js';
@@ -117,7 +118,7 @@ export async function getPaymentRules(
   }
 
   const installmentPaise = Number(enrollment.monthlyInstallmentPaise);
-  if (!Number.isSafeInteger(installmentPaise) || installmentPaise < 100_000) {
+  if (!Number.isSafeInteger(installmentPaise) || installmentPaise < NAKSHATHRA_MINIMUM_PAYMENT_PAISE) {
     throw new AppError('INVALID_INSTALLMENT', 'Enrollment has an invalid monthly installment', 409);
   }
 

@@ -1,7 +1,7 @@
 import type { ListPageResult, ListQuery } from "../utils/cursor-pagination.js";
 import { type ClientSession } from "mongoose";
 import { LIVE_CONTRIBUTION_DEFAULTS } from "../utils/contribution-policy.js";
-import { formatEnrollmentNumber, isGoldWeightEnabled, LIVE_SCHEME_TYPE } from "../config/business.js";
+import { formatEnrollmentNumber, LIVE_SCHEME_TYPE } from "../config/business.js";
 import { AppError } from "../utils/AppError.js";
 import { withMongoTransaction } from "../utils/transaction.js";
 import {
@@ -46,18 +46,9 @@ import {
   type EnrollmentListFilters,
 } from "./enrollment-collection.service.js";
 import { executeSchemeSettlement, previewSchemeSettlement } from "./scheme-settlement.service.js";
+import type { SettlementAsset } from "../models/enums.js";
 
 const ENROLLMENT_SCOPE_PREFIX = "ENROLLMENT";
-
-function assertGoldWeightEnabled() {
-  if (!isGoldWeightEnabled()) {
-    throw new AppError(
-      "GOLD_WEIGHT_DISABLED",
-      "GOLD_WEIGHT functionality is not enabled for this deployment",
-      409,
-    );
-  }
-}
 
 export async function allocateEnrollmentNumber(
   session: ClientSession,
@@ -148,6 +139,7 @@ export async function createEnrollmentRecord(
         paymentWindowEndDay: planSnapshot.paymentWindowEndDay,
         prematureClosureEnabled: planSnapshot.prematureClosureEnabled,
         prematureClosureMinPaidInstallments: planSnapshot.prematureClosureMinPaidInstallments,
+        prematureClosureMinElapsedMonths: planSnapshot.prematureClosureMinElapsedMonths,
         prematureClosureSettlementAssets: planSnapshot.prematureClosureSettlementAssets,
         maturitySettlementAssets: planSnapshot.maturitySettlementAssets,
         prematureClosureCashBasis: planSnapshot.prematureClosureCashBasis,
@@ -518,7 +510,7 @@ export function listRedemptionReadyCollection(
 
 export function previewPrematureClosure(
   enrollmentId: string,
-  settlementAsset?: "GOLD" | "CASH",
+  settlementAsset?: SettlementAsset,
 ) {
   return previewSchemeSettlement({
     enrollmentId,
@@ -527,7 +519,7 @@ export function previewPrematureClosure(
   });
 }
 
-export function previewRedemption(enrollmentId: string, settlementAsset?: "GOLD" | "CASH") {
+export function previewRedemption(enrollmentId: string, settlementAsset?: SettlementAsset) {
   return previewSchemeSettlement({
     enrollmentId,
     kind: "REDEEM",
@@ -557,12 +549,10 @@ export function prematureCloseEnrollment(
 }
 
 export const listGoldRates = () => {
-  assertGoldWeightEnabled();
   return GoldRate.find().sort({ effectiveFrom: -1 }).limit(90).lean();
 };
 
 export async function getGoldRate(rateId: string) {
-  assertGoldWeightEnabled();
   const rate = await GoldRate.findById(rateId)
     .populate('createdBy', 'name')
     .populate('updatedBy', 'name')
@@ -575,7 +565,6 @@ export async function createGoldRate(
   input: CreateGoldRateInput,
   context: AuditContext & { actorId: string },
 ) {
-  assertGoldWeightEnabled();
   const rate = await withMongoTransaction(async (session) => {
     const { start } = businessDayRange(input.effectiveFrom);
     const [created] = await GoldRate.create(
@@ -605,7 +594,6 @@ export async function updateGoldRate(
   input: UpdateGoldRateInput,
   context: AuditContext & { actorId: string },
 ) {
-  assertGoldWeightEnabled();
   const rate = await withMongoTransaction(async (session) => {
     const existing = await GoldRate.findById(rateId).session(session);
     if (!existing)

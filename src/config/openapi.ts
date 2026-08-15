@@ -78,7 +78,7 @@ export const openapi = {
     '/admin/payouts': {
       get: { summary: 'List CASH payouts and GOLD_WEIGHT redemptions', security: staffSecurity },
       post: {
-        summary: 'CASH maturity PAYOUT (live) or GOLD_WEIGHT REDEEM (dormant)',
+        summary: 'CASH or JEWELLERY maturity PAYOUT (live) or GOLD_WEIGHT REDEEM (dormant)',
         security: staffSecurity,
       },
     },
@@ -153,11 +153,11 @@ export const openapi = {
     },
     '/admin/gold-rates': {
       get: {
-        summary: 'List gold rates. Dormant while GOLD_WEIGHT is disabled.',
+        summary: 'List authorised gold rates used for jewellery settlement valuation',
         security: staffSecurity,
       },
       post: {
-        summary: 'Create a gold rate. Dormant while GOLD_WEIGHT is disabled.',
+        summary: 'Publish an authorised gold rate for jewellery settlement valuation',
         security: staffSecurity,
       },
     },

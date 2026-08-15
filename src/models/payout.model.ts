@@ -1,5 +1,11 @@
 import { createSchema, objectIdField, registerModel, Schema } from './model-helpers.js';
-import { CASH_SETTLEMENT_BASES, PAYOUT_METHODS, PAYOUT_TYPES } from './enums.js';
+import {
+  CASH_SETTLEMENT_BASES,
+  JEWELLERY_EXTRA_PAYMENT_METHODS,
+  PAYOUT_METHODS,
+  PAYOUT_TYPES,
+  SETTLEMENT_MODES,
+} from './enums.js';
 
 const payoutSchema = createSchema({
   customerId: objectIdField('Customer'),
@@ -24,6 +30,13 @@ const payoutSchema = createSchema({
   valuationGoldRateId: objectIdField('GoldRate', false),
   valuationGoldRatePerGramPaise: { type: Number, min: 1 },
   valuationGoldWeightMg: { type: Number, min: 0 },
+  settlementMode: { type: String, enum: SETTLEMENT_MODES },
+  billNumber: { type: String, maxlength: 80 },
+  billAmountPaise: { type: Number, min: 1 },
+  schemeValueAppliedPaise: { type: Number, min: 0 },
+  extraPaidPaise: { type: Number, min: 0 },
+  extraPaymentMethod: { type: String, enum: JEWELLERY_EXTRA_PAYMENT_METHODS },
+  extraPaymentReference: { type: String, maxlength: 120 },
   policySnapshot: Schema.Types.Mixed,
   idempotencyKey: { type: String, maxlength: 120 },
   requestHash: { type: String, maxlength: 64 },

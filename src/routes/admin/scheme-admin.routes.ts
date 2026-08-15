@@ -1,6 +1,5 @@
 import { Router } from "express";
 import { asyncHandler } from "../../utils/asyncHandler.js";
-import { requireGoldWeightEnabled } from "../../middlewares/auth.middleware.js";
 import { validateBody } from "../../middlewares/validate.middleware.js";
 import {
   cancelEnrollmentSchema,
@@ -86,15 +85,13 @@ schemeAdminRouter.patch(
 );
 schemeAdminRouter.post(
   "/gold-rates",
-  requireGoldWeightEnabled,
   validateBody(createGoldRateSchema),
   asyncHandler(createGoldRateHandler),
 );
-schemeAdminRouter.get("/gold-rates", requireGoldWeightEnabled, asyncHandler(listGoldRatesHandler));
-schemeAdminRouter.get("/gold-rates/:id", requireGoldWeightEnabled, asyncHandler(getGoldRateHandler));
+schemeAdminRouter.get("/gold-rates", asyncHandler(listGoldRatesHandler));
+schemeAdminRouter.get("/gold-rates/:id", asyncHandler(getGoldRateHandler));
 schemeAdminRouter.patch(
   "/gold-rates/:id",
-  requireGoldWeightEnabled,
   validateBody(updateGoldRateSchema),
   asyncHandler(updateGoldRateHandler),
 );

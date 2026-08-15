@@ -3,6 +3,7 @@ import { ok } from "../../utils/respond.js";
 import type { AuthenticatedRequest } from "../../types/authenticated-request.js";
 import { auditContextFromRequest } from "../../types/authenticated-request.js";
 import { listQueryFromRequest } from "../../utils/cursor-pagination.js";
+import { parseSettlementAsset } from "../../services/scheme-settlement.service.js";
 import type { EnrollmentListFilters } from "../../services/enrollment-collection.service.js";
 import {
   cancelEnrollment,
@@ -220,13 +221,10 @@ export async function prematureClosurePreviewHandler(
   request: AuthenticatedRequest,
   response: Response,
 ) {
-  const asset = String(request.query.settlementAsset ?? "").toUpperCase();
+  const asset = parseSettlementAsset(request.query.settlementAsset);
   ok(
     response,
-    await previewPrematureClosure(
-      String(request.params.id),
-      asset === "GOLD" || asset === "CASH" ? asset : undefined,
-    ),
+    await previewPrematureClosure(String(request.params.id), asset),
   );
 }
 
@@ -250,13 +248,10 @@ export async function redemptionPreviewHandler(
   request: AuthenticatedRequest,
   response: Response,
 ) {
-  const asset = String(request.query.settlementAsset ?? "").toUpperCase();
+  const asset = parseSettlementAsset(request.query.settlementAsset);
   ok(
     response,
-    await previewRedemption(
-      String(request.params.id),
-      asset === "GOLD" || asset === "CASH" ? asset : undefined,
-    ),
+    await previewRedemption(String(request.params.id), asset),
   );
 }
 

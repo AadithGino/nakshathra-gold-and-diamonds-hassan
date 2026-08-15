@@ -37,6 +37,7 @@ export type PlanSnapshot = {
   paymentWindowEndDay?: number;
   prematureClosureEnabled: boolean;
   prematureClosureMinPaidInstallments: number;
+  prematureClosureMinElapsedMonths?: number;
   prematureClosureSettlementAssets: SettlementAsset[];
   maturitySettlementAssets: SettlementAsset[];
   prematureClosureCashBasis: CashSettlementBasis;
@@ -67,6 +68,7 @@ function asPlanPolicy(plan: Record<string, unknown>): SettlementPolicy {
     prematureClosureMinPaidInstallments: plan.prematureClosureMinPaidInstallments as
       | number
       | undefined,
+    prematureClosureMinElapsedMonths: plan.prematureClosureMinElapsedMonths as number | undefined,
     prematureClosureSettlementAssets: plan.prematureClosureSettlementAssets as
       | SettlementAsset[]
       | undefined,
@@ -115,6 +117,8 @@ export function enrollmentContract(enrollment: any): PlanSnapshot | null {
       prematureClosureMinPaidInstallments:
         enrollment.prematureClosureMinPaidInstallments ??
         snapshot.prematureClosureMinPaidInstallments,
+      prematureClosureMinElapsedMonths:
+        enrollment.prematureClosureMinElapsedMonths ?? snapshot.prematureClosureMinElapsedMonths,
       prematureClosureSettlementAssets:
         enrollment.prematureClosureSettlementAssets ?? snapshot.prematureClosureSettlementAssets,
       maturitySettlementAssets:
@@ -158,6 +162,7 @@ export function enrollmentWindowAndPolicy(enrollment: any): {
     policy: {
       prematureClosureEnabled: snapshot.prematureClosureEnabled,
       prematureClosureMinPaidInstallments: snapshot.prematureClosureMinPaidInstallments,
+      prematureClosureMinElapsedMonths: snapshot.prematureClosureMinElapsedMonths,
       prematureClosureSettlementAssets: snapshot.prematureClosureSettlementAssets,
       maturitySettlementAssets: snapshot.maturitySettlementAssets,
       prematureClosureCashBasis: snapshot.prematureClosureCashBasis,

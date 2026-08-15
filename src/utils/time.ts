@@ -27,5 +27,10 @@ export const schemeMonth = (start: Date, payment: Date) =>
     startOfMonth(toZonedTime(payment, BUSINESS_TZ)),
     startOfMonth(toZonedTime(start, BUSINESS_TZ)),
   ) + 1;
-export const maturityDate = (start: Date, months: number) =>
-  fromZonedTime(addMonths(toZonedTime(start, BUSINESS_TZ), months), BUSINESS_TZ);
+
+/** Calendar-month addition in Asia/Kolkata. Same overflow rules as enrollmentDates. */
+export function addSchemeMonths(start: Date, months: number) {
+  return fromZonedTime(addMonths(toZonedTime(start, BUSINESS_TZ), months), BUSINESS_TZ);
+}
+
+export const maturityDate = (start: Date, months: number) => addSchemeMonths(start, months);

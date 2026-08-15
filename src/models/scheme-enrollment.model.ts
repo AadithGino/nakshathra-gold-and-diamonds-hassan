@@ -1,3 +1,4 @@
+import { NAKSHATHRA_MINIMUM_PAYMENT_PAISE } from '../config/business.js';
 import { createSchema, objectIdField, registerModel, Schema } from './model-helpers.js';
 import {
   CAP_STRATEGIES,
@@ -24,7 +25,7 @@ const schemeEnrollmentSchema = createSchema({
   capMonths: { type: Number, min: 0 },
   capStrategy: { type: String, enum: CAP_STRATEGIES },
   contributionPolicyVersion: { type: Number, min: 1 },
-  monthlyInstallmentPaise: { type: Number, required: true, min: 100_000 },
+  monthlyInstallmentPaise: { type: Number, required: true, min: NAKSHATHRA_MINIMUM_PAYMENT_PAISE },
   makingChargeWaiverPercent: { type: Number, required: true, min: 100, max: 100, default: 100 },
   gstRateBasisPoints: { type: Number, required: true, min: 300, max: 300, default: 300 },
   schemePlanVersion: { type: Number, min: 1 },
@@ -34,6 +35,7 @@ const schemeEnrollmentSchema = createSchema({
   paymentWindowEndDay: { type: Number, min: 1, max: 31 },
   prematureClosureEnabled: { type: Boolean },
   prematureClosureMinPaidInstallments: { type: Number, min: 1, max: 11 },
+  prematureClosureMinElapsedMonths: { type: Number, min: 1, max: 11 },
   prematureClosureSettlementAssets: [{ type: String, enum: SETTLEMENT_ASSETS }],
   maturitySettlementAssets: [{ type: String, enum: SETTLEMENT_ASSETS }],
   prematureClosureCashBasis: { type: String, enum: CASH_SETTLEMENT_BASES },
@@ -61,6 +63,7 @@ const schemeEnrollmentSchema = createSchema({
     paymentWindowEndDay: Number,
     prematureClosureEnabled: Boolean,
     prematureClosureMinPaidInstallments: Number,
+    prematureClosureMinElapsedMonths: Number,
     prematureClosureSettlementAssets: [{ type: String, enum: SETTLEMENT_ASSETS }],
     maturitySettlementAssets: [{ type: String, enum: SETTLEMENT_ASSETS }],
     prematureClosureCashBasis: { type: String, enum: CASH_SETTLEMENT_BASES },

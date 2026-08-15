@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { paiseAmount } from '../utils/zod-money.js';
+import { SETTLEMENT_ASSETS } from '../models/enums.js';
 
 export const manualPaymentSchema = z.object({
   customerId: z.string().min(1),
@@ -36,11 +37,33 @@ export const payoutSchema = z
   .object({
     ...settlementBase,
     payoutType: z.enum(['PAYOUT', 'REDEEM']),
-    settlementAsset: z.enum(['GOLD', 'CASH']).optional(),
+    settlementAsset: z.enum(SETTLEMENT_ASSETS).optional(),
     method: z.enum(['CASH', 'BANK', 'UPI']).optional(),
     idempotencyKey: z.string().min(8).max(120).optional(),
+    billNumber: z.string().trim().min(1).max(80).optional(),
+    billAmountPaise: z.number().int().positive().optional(),
+    extraPaymentMethod: z.enum(['CASH', 'UPI', 'CARD', 'BANK']).optional(),
+    extraPaymentReference: z.string().trim().min(1).max(120).optional(),
   })
-  .strict();
+  .strict()
+  .superRefine((value, ctx) => {
+    if (value.settlementAsset === 'JEWELLERY') {
+      if (!value.billNumber) {
+        ctx.addIssue({
+          code: 'custom',
+          path: ['billNumber'],
+          message: 'billNumber is required for jewellery settlement',
+        });
+      }
+      if (value.billAmountPaise == null) {
+        ctx.addIssue({
+          code: 'custom',
+          path: ['billAmountPaise'],
+          message: 'billAmountPaise is required for jewellery settlement',
+        });
+      }
+    }
+  });
 
 export const correctionDecisionSchema = z.object({
   decision: z.enum(['APPROVED', 'REJECTED']),

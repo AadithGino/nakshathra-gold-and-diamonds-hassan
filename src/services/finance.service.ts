@@ -485,11 +485,15 @@ export async function createPayout(
     schemeId: string;
     payoutDate: Date;
     payoutType: 'PAYOUT' | 'REDEEM';
-    settlementAsset?: 'GOLD' | 'CASH';
+    settlementAsset?: 'GOLD' | 'CASH' | 'JEWELLERY';
     method?: 'CASH' | 'BANK' | 'UPI';
     referenceNumber?: string;
     notes?: string;
     idempotencyKey?: string;
+    billNumber?: string;
+    billAmountPaise?: number;
+    extraPaymentMethod?: 'CASH' | 'UPI' | 'CARD' | 'BANK';
+    extraPaymentReference?: string;
   },
   context: AuditContext & { actorId: string },
 ) {
@@ -514,15 +518,17 @@ export async function createPayout(
     );
   }
   const policy = resolveSettlementPolicy(scheme.toObject());
-  const settlementAsset =
-    scheme.schemeType === 'CASH' ? 'CASH' : resolveRedemptionAsset(input.settlementAsset, policy);
   if (scheme.schemeType === 'CASH' && input.settlementAsset === 'GOLD') {
     throw new AppError(
       'SETTLEMENT_ASSET_NOT_ALLOWED',
-      'Live CASH schemes settle in cash only',
+      'Live CASH schemes cannot settle as physical GOLD_WEIGHT gold',
       409,
     );
   }
+  const settlementAsset =
+    scheme.schemeType === 'CASH'
+      ? resolveRedemptionAsset(input.settlementAsset ?? 'CASH', policy)
+      : resolveRedemptionAsset(input.settlementAsset, policy);
   return executeSchemeSettlement(
     {
       enrollmentId: input.schemeId,
@@ -533,7 +539,16 @@ export async function createPayout(
       referenceNumber: input.referenceNumber,
       notes: input.notes,
       idempotencyKey: input.idempotencyKey,
-      disbursementMethod: input.method,
+      disbursementMethod: settlementAsset === 'JEWELLERY' ? undefined : input.method,
+      jewellery:
+        settlementAsset === 'JEWELLERY'
+          ? {
+              billNumber: input.billNumber ?? '',
+              billAmountPaise: input.billAmountPaise ?? 0,
+              extraPaymentMethod: input.extraPaymentMethod,
+              extraPaymentReference: input.extraPaymentReference,
+            }
+          : undefined,
     },
     context,
   );

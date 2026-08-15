@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { LIVE_SCHEME_TYPE } from '../config/business.js';
+import { LIVE_SCHEME_TYPE, NAKSHATHRA_MINIMUM_PAYMENT_PAISE } from '../config/business.js';
 import { CASH_SETTLEMENT_BASES, PAYMENT_WINDOW_TYPES, SETTLEMENT_ASSETS } from '../models/enums.js';
 import { validatePaymentWindow, validateSettlementPolicy } from '../utils/payment-window.js';
 
@@ -15,6 +15,7 @@ const paymentWindowFields = {
 const settlementPolicyFields = {
   prematureClosureEnabled: z.boolean().optional(),
   prematureClosureMinPaidInstallments: z.number().int().min(1).max(11).optional(),
+  prematureClosureMinElapsedMonths: z.number().int().min(1).max(11).optional(),
   prematureClosureSettlementAssets: settlementAssetList.optional(),
   maturitySettlementAssets: settlementAssetList.optional(),
   prematureClosureCashBasis: z.enum(CASH_SETTLEMENT_BASES).optional(),
@@ -25,7 +26,7 @@ const schemePlanFields = z.object({
   name: z.string().trim().min(2).max(120),
   type: z.literal(LIVE_SCHEME_TYPE).default(LIVE_SCHEME_TYPE),
   durationMonths: z.literal(11).default(11),
-  minimumPaymentPaise: z.number().int().min(100_000),
+  minimumPaymentPaise: z.number().int().min(NAKSHATHRA_MINIMUM_PAYMENT_PAISE),
   termsText: z.string().min(5).max(10_000),
   benefitText: z.string().max(2_000).optional(),
   makingChargeBenefit: z.string().max(500).optional(),
@@ -43,6 +44,7 @@ function addPlanConfigIssues(value: Partial<z.infer<typeof schemePlanFields>>, c
   const hasPolicy =
     value.prematureClosureEnabled != null ||
     value.prematureClosureMinPaidInstallments != null ||
+    value.prematureClosureMinElapsedMonths != null ||
     value.prematureClosureSettlementAssets != null ||
     value.maturitySettlementAssets != null ||
     value.prematureClosureCashBasis != null ||
@@ -82,7 +84,7 @@ export const createEnrollmentSchema = z.object({
   schemePlanId: z.string().min(1),
   enrollmentNumber: z.string().trim().min(2).max(50).optional(),
   startDate: z.coerce.date(),
-  monthlyInstallmentPaise: z.number().int().min(100_000),
+  monthlyInstallmentPaise: z.number().int().min(NAKSHATHRA_MINIMUM_PAYMENT_PAISE),
 });
 
 export const updateEnrollmentStatusSchema = z.object({

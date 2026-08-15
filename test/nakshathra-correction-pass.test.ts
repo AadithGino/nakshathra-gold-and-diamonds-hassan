@@ -489,7 +489,7 @@ describe('Nakshathra correction pass', () => {
       expect(spy).not.toHaveBeenCalled();
     });
 
-    it('rejects gold-only customer and admin gold-rate routes while GOLD_WEIGHT is disabled', async () => {
+    it('keeps customer gold-rate routes gated while admin gold rates remain available for jewellery valuation', async () => {
       expect(isGoldWeightEnabled()).toBe(false);
       const admin = await seedAdmin();
       await seedVerifiedCustomer({ phone: '+917183700143' });
@@ -505,23 +505,22 @@ describe('Nakshathra correction pass', () => {
       const adminRates = await request(app)
         .get('/api/v1/admin/gold-rates')
         .set('Cookie', cookieHeader(adminIssued.tokens.access));
-      expect(adminRates.status).toBe(409);
-      expect(adminRates.body.error.code).toBe('GOLD_WEIGHT_DISABLED');
+      expect(adminRates.status).toBe(200);
 
       const created = await request(app)
         .post('/api/v1/admin/gold-rates')
         .set('Cookie', cookieHeader(adminIssued.tokens.access))
         .send({ ratePerGramPaise: 750_000, purity: '916', effectiveFrom: new Date().toISOString() });
-      expect(created.status).toBe(409);
-      expect(created.body.error.code).toBe('GOLD_WEIGHT_DISABLED');
+      expect(created.status).toBe(201);
+      expect(created.body.data.ratePerGramPaise).toBe(750_000);
 
-      expect(() => listGoldRates()).toThrow(/GOLD_WEIGHT functionality is not enabled/);
-      await expect(
-        createGoldRate(
-          { ratePerGramPaise: 750_000, purity: '916', effectiveFrom: new Date() },
-          adminCtx(String(admin._id), 'corr-gold-create'),
-        ),
-      ).rejects.toMatchObject({ code: 'GOLD_WEIGHT_DISABLED' });
+      const listed = await listGoldRates();
+      expect(listed.length).toBeGreaterThan(0);
+      const serviceCreated = await createGoldRate(
+        { ratePerGramPaise: 760_000, purity: '916', effectiveFrom: addMonths(new Date(), -1) },
+        adminCtx(String(admin._id), 'corr-gold-create'),
+      );
+      expect(serviceCreated.ratePerGramPaise).toBe(760_000);
     });
 
     it('keeps GOLD_WEIGHT conversion infrastructure available while dormant', () => {
@@ -940,10 +939,11 @@ describe('Nakshathra correction pass', () => {
       const admin = await seedAdmin();
       const plan = await seedCashPlan();
       const customer = await seedVerifiedCustomer({ phone: '+917183700171' });
+      const start = startMonthsAgo(6);
       const enrollment = await enrollCustomer(
         String(customer._id),
         String(plan._id),
-        monthStartIst(),
+        start,
         'corr-pc-42k',
       );
       await payCash(
@@ -951,7 +951,7 @@ describe('Nakshathra correction pass', () => {
         String(customer._id),
         String(enrollment._id),
         PRINCIPAL_42000_RUPEES,
-        new Date(),
+        monthDate(start, 0),
         'corr-pc-42k-pay',
       );
       const payout = await prematureCloseEnrollment(
@@ -976,10 +976,11 @@ describe('Nakshathra correction pass', () => {
       const admin = await seedAdmin();
       const plan = await seedCashPlan();
       const customer = await seedVerifiedCustomer({ phone: '+917183700172' });
+      const start = startMonthsAgo(6);
       const enrollment = await enrollCustomer(
         String(customer._id),
         String(plan._id),
-        monthStartIst(),
+        start,
         'corr-pc-ex',
       );
       const keep = await payCash(
@@ -987,7 +988,7 @@ describe('Nakshathra correction pass', () => {
         String(customer._id),
         String(enrollment._id),
         250_000,
-        new Date(),
+        monthDate(start, 0),
         'corr-pc-keep',
       );
       const reverse = await payCash(
@@ -995,7 +996,7 @@ describe('Nakshathra correction pass', () => {
         String(customer._id),
         String(enrollment._id),
         150_000,
-        new Date(),
+        monthDate(start, 0),
         'corr-pc-rev',
       );
       await Payment.updateOne(

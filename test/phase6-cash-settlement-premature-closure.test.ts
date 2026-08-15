@@ -252,7 +252,7 @@ describe('Phase 6 — CASH maturity settlement, payout and premature closure', (
     it('returns contribution value with no penalty for live CASH and leaves GOLD_WEIGHT to the existing calculator', () => {
       expect(PREMATURE_CLOSURE_POLICY_ID).toBe('CONTRIBUTION_VALUE_NO_PENALTY');
       expect(LIVE_CASH_SETTLEMENT_POLICY.prematureClosureSettlementAssets).toEqual(['CASH']);
-      expect(LIVE_CASH_SETTLEMENT_POLICY.maturitySettlementAssets).toEqual(['CASH']);
+      expect(LIVE_CASH_SETTLEMENT_POLICY.maturitySettlementAssets).toEqual(['CASH', 'JEWELLERY']);
       expect(LIVE_CASH_SETTLEMENT_POLICY.prematureClosureCashBasis).toBe('CONTRIBUTION_VALUE');
       expect(LIVE_CASH_SETTLEMENT_POLICY.maturityCashBasis).toBe('CONTRIBUTION_VALUE');
 
@@ -367,11 +367,12 @@ describe('Phase 6 — CASH maturity settlement, payout and premature closure', (
       );
       expect(cashPayout.method).toBe('CASH');
 
+      const bankStart = startMonthsAgo(6);
       const bankCustomer = await seedVerifiedCustomer({ phone: '+917182600103' });
       const bankEnrollment = await enrollCustomer(
         String(bankCustomer._id),
         String(plan._id),
-        monthStartIst(),
+        bankStart,
         'p6-method-bank',
       );
       await payCash(
@@ -379,7 +380,7 @@ describe('Phase 6 — CASH maturity settlement, payout and premature closure', (
         String(bankCustomer._id),
         String(bankEnrollment._id),
         MIN,
-        new Date(),
+        monthDate(bankStart, 0),
         'p6-bank-pay',
       );
       const bank = await prematureCloseEnrollment(
@@ -397,11 +398,12 @@ describe('Phase 6 — CASH maturity settlement, payout and premature closure', (
       expect(bank.payoutType).toBe('PREMATURE_CLOSE');
       expect(bank.amountPaise).toBe(MIN);
 
+      const upiStart = startMonthsAgo(6);
       const upiCustomer = await seedVerifiedCustomer({ phone: '+917182600104' });
       const upiEnrollment = await enrollCustomer(
         String(upiCustomer._id),
         String(plan._id),
-        monthStartIst(),
+        upiStart,
         'p6-method-upi',
       );
       await payCash(
@@ -409,7 +411,7 @@ describe('Phase 6 — CASH maturity settlement, payout and premature closure', (
         String(upiCustomer._id),
         String(upiEnrollment._id),
         MIN * 2,
-        new Date(),
+        monthDate(upiStart, 0),
         'p6-upi-pay',
       );
       const upi = await prematureCloseEnrollment(
@@ -712,10 +714,11 @@ describe('Phase 6 — CASH maturity settlement, payout and premature closure', (
       const admin = await seedAdmin();
       const plan = await seedCashPlan();
       const customer = await seedVerifiedCustomer({ phone: '+917182600111' });
+      const start = startMonthsAgo(6);
       const enrollment = await enrollCustomer(
         String(customer._id),
         String(plan._id),
-        monthStartIst(),
+        start,
         'p6-pc',
       );
       await payCash(
@@ -723,7 +726,7 @@ describe('Phase 6 — CASH maturity settlement, payout and premature closure', (
         String(customer._id),
         String(enrollment._id),
         150_000,
-        new Date(),
+        monthDate(start, 0),
         'p6-pc-a',
       );
       await payCash(
@@ -731,7 +734,7 @@ describe('Phase 6 — CASH maturity settlement, payout and premature closure', (
         String(customer._id),
         String(enrollment._id),
         250_000,
-        new Date(),
+        monthDate(start, 0),
         'p6-pc-b',
       );
 
@@ -761,7 +764,7 @@ describe('Phase 6 — CASH maturity settlement, payout and premature closure', (
       const admin = await seedAdmin();
       const plan = await seedCashPlan();
       const customer = await seedVerifiedCustomer({ phone: '+917182600112' });
-      const start = startMonthsAgo(2);
+      const start = startMonthsAgo(6);
       const enrollment = await enrollCustomer(
         String(customer._id),
         String(plan._id),

@@ -23,15 +23,22 @@ import {
   Payout,
   Refund,
   SchemeEnrollment,
+  GoldRate,
 } from '../models/index.js';
-import type { PayoutMethod, PayoutType, SettlementAsset } from '../models/enums.js';
+import type { PayoutMethod, PayoutType, SettlementAsset, SettlementMode } from '../models/enums.js';
+import { SETTLEMENT_ASSETS } from '../models/enums.js';
+import { NAKSHATHRA_PREMATURE_CLOSURE_MIN_ELAPSED_MONTHS } from '../config/business.js';
 import { audit, outbox, type AuditContext } from './audit.service.js';
 import { assertDateInOpenPeriod } from './accounting-period.service.js';
 import { assertCustomerKycVerified } from './customer-financial-policy.service.js';
 import { recordPayoutGoldIssue, reportNegativeInventoryException } from './gold-control.service.js';
-import { activeGoldRate } from './scheme.service.js';
+import { activeGoldRate, goldWeightMg } from './scheme.service.js';
 import { buildPlanSnapshot } from '../utils/scheme-contract.js';
-import { calculatePrematureClosureSettlement } from '../utils/premature-closure-policy.js';
+import {
+  calculatePrematureClosureSettlement,
+  isPrematureClosureTimeEligible,
+  prematureClosureEligibilityBoundary,
+} from '../utils/premature-closure-policy.js';
 import {
   resolvePaymentWindow,
   resolveSettlementPolicy,
@@ -66,7 +73,104 @@ export type SchemeSettlementCalculation = {
   amountPaise: number;
   goldWeightMg: number;
   valuation: SettlementValuation | null;
+  settlementMode?: SettlementMode;
 };
+
+export type JewellerySettlementInput = {
+  billNumber: string;
+  billAmountPaise: number;
+  extraPaymentMethod?: 'CASH' | 'UPI' | 'CARD' | 'BANK';
+  extraPaymentReference?: string;
+};
+
+export type JewellerySettlementFields = {
+  settlementMode: 'JEWELLERY';
+  billNumber: string;
+  billAmountPaise: number;
+  schemeValueAppliedPaise: number;
+  extraPaidPaise: number;
+  extraPaymentMethod?: 'CASH' | 'UPI' | 'CARD' | 'BANK';
+  extraPaymentReference?: string;
+};
+
+export function parseSettlementAsset(value: unknown): SettlementAsset | undefined {
+  const asset = String(value ?? '').trim().toUpperCase();
+  return (SETTLEMENT_ASSETS as readonly string[]).includes(asset)
+    ? (asset as SettlementAsset)
+    : undefined;
+}
+
+function allowedSettlementModesFor(
+  kind: SettlementKind,
+  policy: SettlementPolicy,
+): SettlementMode[] {
+  const assets =
+    kind === 'PREMATURE_CLOSE'
+      ? policy.prematureClosureSettlementAssets
+      : policy.maturitySettlementAssets;
+  return assets.filter((asset): asset is SettlementMode => asset === 'CASH' || asset === 'JEWELLERY');
+}
+
+export function jewelleryPurchaseTopUp(input: {
+  billAmountPaise: number;
+  schemeValueAppliedPaise: number;
+  extraPaymentMethod?: 'CASH' | 'UPI' | 'CARD' | 'BANK';
+  extraPaymentReference?: string;
+}): { extraPaidPaise: number; extraPaymentMethod?: 'CASH' | 'UPI' | 'CARD' | 'BANK'; extraPaymentReference?: string } {
+  paise(input.billAmountPaise);
+  paise(input.schemeValueAppliedPaise);
+  if (input.billAmountPaise < input.schemeValueAppliedPaise) {
+    throw new AppError(
+      'JEWELLERY_BILL_BELOW_ENTITLEMENT',
+      'Jewellery bill amount cannot be below the remaining scheme entitlement',
+      422,
+      false,
+      [
+        {
+          billAmountPaise: input.billAmountPaise,
+          schemeValueAppliedPaise: input.schemeValueAppliedPaise,
+        },
+      ],
+    );
+  }
+  const extraPaidPaise = input.billAmountPaise - input.schemeValueAppliedPaise;
+  if (extraPaidPaise === 0) {
+    return { extraPaidPaise: 0 };
+  }
+  if (!input.extraPaymentMethod) {
+    throw new AppError(
+      'JEWELLERY_EXTRA_PAYMENT_REQUIRED',
+      'extraPaymentMethod is required when the jewellery bill exceeds scheme entitlement',
+      422,
+    );
+  }
+  const extraPaymentReference = input.extraPaymentReference?.trim() || undefined;
+  if (input.extraPaymentMethod !== 'CASH' && !extraPaymentReference) {
+    throw new AppError(
+      'JEWELLERY_EXTRA_PAYMENT_REFERENCE_REQUIRED',
+      'extraPaymentReference is required for non-cash jewellery top-up payments',
+      422,
+    );
+  }
+  return {
+    extraPaidPaise,
+    extraPaymentMethod: input.extraPaymentMethod,
+    extraPaymentReference,
+  };
+}
+
+function assertJewelleryBillPresent(input: JewellerySettlementInput | undefined) {
+  const billNumber = input?.billNumber?.trim();
+  if (!billNumber || input?.billAmountPaise == null) {
+    throw new AppError(
+      'JEWELLERY_BILL_REQUIRED',
+      'Jewellery settlement requires billNumber and billAmountPaise',
+      422,
+    );
+  }
+  paise(input.billAmountPaise);
+  return { billNumber, billAmountPaise: input.billAmountPaise };
+}
 
 function randomLockId() {
   return randomUUID().slice(0, 8);
@@ -84,7 +188,7 @@ export function cashValueFromGoldWeightMg(goldWeightMg: number, ratePerGramPaise
   return cashAmountPaise;
 }
 
-export type CashDisbursementMethod = Exclude<PayoutMethod, 'GOLD'>;
+export type CashDisbursementMethod = Exclude<PayoutMethod, 'GOLD' | 'JEWELLERY'>;
 
 export function calculateSchemeSettlement(input: {
   kind: SettlementKind;
@@ -110,10 +214,43 @@ export function calculateSchemeSettlement(input: {
   }
 
   if (schemeType === 'CASH') {
+    if (settlementAsset === 'JEWELLERY') {
+      if (kind === 'PREMATURE_CLOSE') {
+        throw new AppError(
+          'SETTLEMENT_ASSET_NOT_ALLOWED',
+          'Early Nakshathra redemption is cash only',
+          409,
+        );
+      }
+      if (!goldRate) {
+        throw new AppError(
+          'GOLD_RATE_REQUIRED_FOR_JEWELLERY_SETTLEMENT',
+          'An active 916 gold rate is required for jewellery settlement',
+          409,
+        );
+      }
+      const amountPaise = ledger.availablePaise;
+      return {
+        settlementAsset: 'JEWELLERY',
+        method: 'JEWELLERY',
+        payoutType,
+        cashBasis: 'CONTRIBUTION_VALUE',
+        settlementPrincipalPaise: amountPaise,
+        amountPaise,
+        goldWeightMg: 0,
+        settlementMode: 'JEWELLERY',
+        valuation: {
+          goldRateId: String(goldRate._id),
+          ratePerGramPaise: goldRate.ratePerGramPaise,
+          purity: '916',
+          goldWeightMg: goldWeightMg(amountPaise, goldRate.ratePerGramPaise),
+        },
+      };
+    }
     if (settlementAsset !== 'CASH') {
       throw new AppError(
         'SETTLEMENT_ASSET_NOT_ALLOWED',
-        'Live CASH schemes settle in cash only',
+        'Live CASH schemes settle in cash or jewellery at maturity only',
         409,
       );
     }
@@ -128,8 +265,17 @@ export function calculateSchemeSettlement(input: {
       settlementPrincipalPaise: amountPaise,
       amountPaise,
       goldWeightMg: 0,
+      settlementMode: 'CASH',
       valuation: null,
     };
+  }
+
+  if (settlementAsset === 'JEWELLERY') {
+    throw new AppError(
+      'SETTLEMENT_ASSET_NOT_ALLOWED',
+      'Jewellery settlement is only available for matured Nakshathra CASH schemes',
+      409,
+    );
   }
 
   if (settlementAsset === 'GOLD') {
@@ -312,7 +458,13 @@ export function collectSettlementBlockersFromState(input: {
   if (kind === 'PREMATURE_CLOSE') {
     if (!policy.prematureClosureEnabled) reasons.push('PREMATURE_CLOSURE_DISABLED');
     if (at.getTime() >= redemptionStart.getTime()) reasons.push('USE_MATURITY_REDEMPTION_FLOW');
-    if (ledger.paymentsCompleted < policy.prematureClosureMinPaidInstallments) {
+    if (enrollment.schemeType === 'CASH') {
+      const elapsedMonths =
+        policy.prematureClosureMinElapsedMonths ?? NAKSHATHRA_PREMATURE_CLOSURE_MIN_ELAPSED_MONTHS;
+      if (!isPrematureClosureTimeEligible(enrollment.startDate, elapsedMonths, at)) {
+        reasons.push('PREMATURE_CLOSURE_NOT_YET_ELIGIBLE');
+      }
+    } else if (ledger.paymentsCompleted < policy.prematureClosureMinPaidInstallments) {
       reasons.push('PREMATURE_CLOSURE_MIN_INSTALLMENTS');
     }
     if (
@@ -362,6 +514,12 @@ export function settlementRequestHash(input: {
   kind: SettlementKind;
   settlementAsset: SettlementAsset;
   payoutDate: Date;
+  jewellery?: {
+    billNumber?: string;
+    billAmountPaise?: number;
+    extraPaymentMethod?: string;
+    extraPaymentReference?: string;
+  };
 }) {
   const zoned = toZonedTime(input.payoutDate, BUSINESS_TZ);
   const payoutBusinessDate = `${zoned.getFullYear()}-${String(zoned.getMonth() + 1).padStart(2, '0')}-${String(zoned.getDate()).padStart(2, '0')}`;
@@ -371,6 +529,14 @@ export function settlementRequestHash(input: {
     kind: input.kind,
     settlementAsset: input.settlementAsset,
     payoutBusinessDate,
+    ...(input.settlementAsset === 'JEWELLERY'
+      ? {
+          billNumber: input.jewellery?.billNumber?.trim() ?? '',
+          billAmountPaise: input.jewellery?.billAmountPaise ?? 0,
+          extraPaymentMethod: input.jewellery?.extraPaymentMethod ?? '',
+          extraPaymentReference: input.jewellery?.extraPaymentReference?.trim() ?? '',
+        }
+      : {}),
   });
 }
 
@@ -429,9 +595,15 @@ function throwFirstBlocker(reasons: string[]) {
       'This scheme is in its redemption window. Use the maturity redemption flow',
     PREMATURE_CLOSURE_MIN_INSTALLMENTS:
       'This scheme has not reached the minimum paid installments for premature closure',
+    PREMATURE_CLOSURE_NOT_YET_ELIGIBLE:
+      'Early redemption is available only after 6 elapsed scheme months',
     SETTLEMENT_ASSET_NOT_ALLOWED: 'This settlement asset is not allowed by the scheme contract',
     REDEMPTION_WINDOW_CLOSED: 'Gold can be redeemed only during month 12 of the scheme',
     INSTALLMENTS_INCOMPLETE: 'All 11 monthly installments must be completed before redemption',
+    GOLD_RATE_REQUIRED_FOR_JEWELLERY_SETTLEMENT:
+      'An active 916 gold rate is required for jewellery settlement',
+    GOLD_RATE_REQUIRED_FOR_CASH_SETTLEMENT:
+      'An active 916 gold rate is required for current-gold-value cash settlement',
   };
   throw new AppError(code, messages[code] ?? code, 409, code === 'SCHEME_SETTLEMENT_IN_PROGRESS');
 }
@@ -457,7 +629,30 @@ function previewPayload(
   calculation: SchemeSettlementCalculation | null,
   blockingReasons: string[],
   settlementAsset?: SettlementAsset,
+  extras?: {
+    currentGoldRate?: {
+      goldRateId: string;
+      ratePerGramPaise: number;
+      purity: '916';
+      effectiveFrom?: Date;
+    } | null;
+    goldWeightEquivalentMg?: number | null;
+  },
 ) {
+  const earlyTimeBlocked =
+    kind === 'PREMATURE_CLOSE' &&
+    (blockingReasons.includes('PREMATURE_CLOSURE_NOT_YET_ELIGIBLE') ||
+      blockingReasons.includes('USE_MATURITY_REDEMPTION_FLOW') ||
+      blockingReasons.includes('PREMATURE_CLOSURE_DISABLED'));
+  const allowedSettlementModes = earlyTimeBlocked ? [] : allowedSettlementModesFor(kind, policy);
+  const jewelleryAllowed = allowedSettlementModes.includes('JEWELLERY');
+  const elapsedMonthsForPreview =
+    policy.prematureClosureMinElapsedMonths ??
+    (enrollment.schemeType === 'CASH' ? NAKSHATHRA_PREMATURE_CLOSURE_MIN_ELAPSED_MONTHS : undefined);
+  const prematureClosureEligibleAt =
+    kind === 'PREMATURE_CLOSE' && elapsedMonthsForPreview && enrollment.startDate
+      ? prematureClosureEligibilityBoundary(new Date(enrollment.startDate), elapsedMonthsForPreview)
+      : null;
   return {
     eligible: blockingReasons.length === 0,
     enrollmentId: String(enrollment._id),
@@ -467,11 +662,21 @@ function previewPayload(
     totalPaidPaise: ledger.totalPaidPaise,
     availablePrincipalPaise: ledger.availablePaise,
     availableGoldWeightMg: ledger.availableGoldWeightMg,
+    redemptionType: kind === 'PREMATURE_CLOSE' ? ('EARLY' as const) : ('MATURITY' as const),
+    settlementMode:
+      settlementAsset === 'JEWELLERY' || settlementAsset === 'CASH' ? settlementAsset : null,
+    allowedSettlementModes,
+    schemeEntitlementPaise: ledger.availablePaise,
     settlementAsset: settlementAsset ?? null,
     cashBasis: calculation?.cashBasis ?? null,
     settlementPrincipalPaise: calculation?.settlementPrincipalPaise ?? null,
-    cashAmountPaise: calculation?.settlementAsset === 'CASH' ? calculation.amountPaise : null,
+    cashAmountPaise:
+      calculation?.settlementAsset === 'CASH' || calculation?.settlementAsset === 'JEWELLERY'
+        ? calculation.amountPaise
+        : null,
     goldWeightMg: calculation?.goldWeightMg ?? null,
+    goldWeightEquivalentMg: extras?.goldWeightEquivalentMg ?? calculation?.valuation?.goldWeightMg ?? null,
+    currentGoldRate: jewelleryAllowed ? extras?.currentGoldRate ?? null : null,
     valuation: calculation?.valuation ?? null,
     allowedSettlementAssets:
       kind === 'PREMATURE_CLOSE'
@@ -480,9 +685,12 @@ function previewPayload(
     policy: {
       prematureClosureEnabled: policy.prematureClosureEnabled,
       minimumPaidInstallments: policy.prematureClosureMinPaidInstallments,
+      prematureClosureMinElapsedMonths: policy.prematureClosureMinElapsedMonths ?? null,
       prematureClosureCashBasis: policy.prematureClosureCashBasis,
       maturityCashBasis: policy.maturityCashBasis,
     },
+    prematureClosureEligibleAt,
+    reason: blockingReasons[0] ?? null,
     makingChargeWaiverPercent: enrollment.makingChargeWaiverPercent,
     gstRateBasisPoints: enrollment.gstRateBasisPoints,
     blockingReasons,
@@ -506,38 +714,54 @@ export async function previewSchemeSettlement(input: {
     settlementAsset: input.settlementAsset,
     at,
   });
-  let calculation: SchemeSettlementCalculation | null = null;
-  if (input.settlementAsset && !blockingReasons.length) {
-    let goldRate = null;
-    const needsRate =
-      enrollment.schemeType !== 'CASH' &&
-      input.settlementAsset === 'CASH' &&
-      (input.kind === 'PREMATURE_CLOSE'
-        ? policy.prematureClosureCashBasis
-        : policy.maturityCashBasis) === 'CURRENT_GOLD_VALUE';
-    if (needsRate) {
-      try {
-        goldRate = await activeGoldRate(at);
-      } catch {
-        blockingReasons.push('GOLD_RATE_REQUIRED_FOR_CASH_SETTLEMENT');
-      }
-    }
-    if (!blockingReasons.length) {
-      try {
-        calculation = calculateSchemeSettlement({
-          kind: input.kind,
-          settlementAsset: input.settlementAsset,
-          ledger,
-          policy,
-          goldRate,
-          schemeType: enrollment.schemeType,
-        });
-      } catch (error: any) {
-        blockingReasons.push(error?.code ?? 'SETTLEMENT_CALCULATION_FAILED');
-        calculation = null;
-      }
+  const jewelleryAllowed = allowedSettlementModesFor(input.kind, policy).includes('JEWELLERY');
+  const needsGoldWeightCashRate =
+    enrollment.schemeType !== 'CASH' &&
+    input.settlementAsset === 'CASH' &&
+    (input.kind === 'PREMATURE_CLOSE'
+      ? policy.prematureClosureCashBasis
+      : policy.maturityCashBasis) === 'CURRENT_GOLD_VALUE';
+  const needsJewelleryRate =
+    enrollment.schemeType === 'CASH' &&
+    (jewelleryAllowed || input.settlementAsset === 'JEWELLERY');
+
+  let goldRate: Awaited<ReturnType<typeof activeGoldRate>> | null = null;
+  if (needsGoldWeightCashRate || needsJewelleryRate) {
+    try {
+      goldRate = await activeGoldRate(at);
+    } catch {
+      goldRate = null;
     }
   }
+  if (input.settlementAsset === 'JEWELLERY' && !goldRate) {
+    blockingReasons.push('GOLD_RATE_REQUIRED_FOR_JEWELLERY_SETTLEMENT');
+  }
+  if (needsGoldWeightCashRate && !goldRate) {
+    blockingReasons.push('GOLD_RATE_REQUIRED_FOR_CASH_SETTLEMENT');
+  }
+
+  let calculation: SchemeSettlementCalculation | null = null;
+  if (input.settlementAsset && !blockingReasons.length) {
+    try {
+      calculation = calculateSchemeSettlement({
+        kind: input.kind,
+        settlementAsset: input.settlementAsset,
+        ledger,
+        policy,
+        goldRate,
+        schemeType: enrollment.schemeType,
+      });
+    } catch (error: any) {
+      blockingReasons.push(error?.code ?? 'SETTLEMENT_CALCULATION_FAILED');
+      calculation = null;
+    }
+  }
+
+  const goldWeightEquivalentMg =
+    jewelleryAllowed && goldRate && ledger.availablePaise > 0
+      ? goldWeightMg(ledger.availablePaise, goldRate.ratePerGramPaise)
+      : (calculation?.valuation?.goldWeightMg ?? null);
+
   return previewPayload(
     enrollment,
     ledger,
@@ -546,6 +770,17 @@ export async function previewSchemeSettlement(input: {
     calculation,
     blockingReasons,
     input.settlementAsset,
+    {
+      currentGoldRate: goldRate
+        ? {
+            goldRateId: String(goldRate._id),
+            ratePerGramPaise: goldRate.ratePerGramPaise,
+            purity: '916',
+            effectiveFrom: goldRate.effectiveFrom,
+          }
+        : null,
+      goldWeightEquivalentMg,
+    },
   );
 }
 
@@ -561,6 +796,7 @@ export async function executeSchemeSettlement(
     notes?: string;
     idempotencyKey?: string;
     disbursementMethod?: CashDisbursementMethod;
+    jewellery?: JewellerySettlementInput;
   },
   context: AuditContext & { actorId: string },
 ) {
@@ -596,6 +832,7 @@ export async function executeSchemeSettlement(
       kind: input.kind,
       settlementAsset: input.settlementAsset,
       payoutDate: input.payoutDate,
+      jewellery: input.jewellery,
     });
 
     const existing = await Payout.findOne({
@@ -634,19 +871,25 @@ export async function executeSchemeSettlement(
       throwFirstBlocker(withoutLock);
 
       let goldRate = null;
-      const needsRate =
+      const needsGoldWeightCashRate =
         enrollment.schemeType !== 'CASH' &&
         input.settlementAsset === 'CASH' &&
         (input.kind === 'PREMATURE_CLOSE'
           ? policy.prematureClosureCashBasis
           : policy.maturityCashBasis) === 'CURRENT_GOLD_VALUE';
-      if (needsRate) {
+      const needsJewelleryRate =
+        enrollment.schemeType === 'CASH' && input.settlementAsset === 'JEWELLERY';
+      if (needsGoldWeightCashRate || needsJewelleryRate) {
         try {
           goldRate = await activeGoldRate(valuationAt, session);
         } catch {
           throw new AppError(
-            'GOLD_RATE_REQUIRED_FOR_CASH_SETTLEMENT',
-            'An active 916 gold rate is required for current-gold-value cash settlement',
+            needsJewelleryRate
+              ? 'GOLD_RATE_REQUIRED_FOR_JEWELLERY_SETTLEMENT'
+              : 'GOLD_RATE_REQUIRED_FOR_CASH_SETTLEMENT',
+            needsJewelleryRate
+              ? 'An active 916 gold rate is required for jewellery settlement'
+              : 'An active 916 gold rate is required for current-gold-value cash settlement',
             409,
           );
         }
@@ -661,6 +904,28 @@ export async function executeSchemeSettlement(
         schemeType: enrollment.schemeType,
         disbursementMethod: input.disbursementMethod,
       });
+
+      let jewelleryFields: Record<string, unknown> = {};
+      if (calculation.settlementAsset === 'JEWELLERY') {
+        const bill = assertJewelleryBillPresent(input.jewellery);
+        const topUp = jewelleryPurchaseTopUp({
+          billAmountPaise: bill.billAmountPaise,
+          schemeValueAppliedPaise: calculation.settlementPrincipalPaise,
+          extraPaymentMethod: input.jewellery?.extraPaymentMethod,
+          extraPaymentReference: input.jewellery?.extraPaymentReference,
+        });
+        jewelleryFields = {
+          settlementMode: 'JEWELLERY',
+          billNumber: bill.billNumber,
+          billAmountPaise: bill.billAmountPaise,
+          schemeValueAppliedPaise: calculation.settlementPrincipalPaise,
+          extraPaidPaise: topUp.extraPaidPaise,
+          extraPaymentMethod: topUp.extraPaymentMethod,
+          extraPaymentReference: topUp.extraPaymentReference,
+        };
+      } else if (calculation.settlementMode === 'CASH') {
+        jewelleryFields = { settlementMode: 'CASH' };
+      }
 
       const policySnapshot = buildPlanSnapshot({
         ...enrollment.planSnapshot,
@@ -693,6 +958,7 @@ export async function executeSchemeSettlement(
               makingChargeWaiverPercent: enrollment.makingChargeWaiverPercent,
               gstRateBasisPoints: enrollment.gstRateBasisPoints,
               createdBy: context.actorId,
+              ...jewelleryFields,
             },
           ],
           { session },
@@ -710,6 +976,14 @@ export async function executeSchemeSettlement(
           throw new AppError('SCHEME_ALREADY_SETTLED', 'Scheme is already settled', 409);
         }
         throw error;
+      }
+
+      if (calculation.settlementAsset === 'JEWELLERY' && calculation.valuation?.goldRateId) {
+        await GoldRate.updateOne(
+          { _id: calculation.valuation.goldRateId },
+          { $inc: { usageCount: 1 } },
+          { session },
+        );
       }
 
       const afterLedger = await syncEnrollmentFromLedger(String(enrollment._id), session);
@@ -753,15 +1027,22 @@ export async function executeSchemeSettlement(
         inventoryMg = inventoryResult?.inventoryMg ?? null;
       }
 
-      await audit(session, context, 'PAYOUT_CREATED', 'Payout', payout._id, undefined, payout.toObject());
+      await audit(session, context, 'PAYOUT_CREATED', 'Payout', payout._id, undefined, {
+        ...payout.toObject(),
+        redemptionType: input.kind === 'PREMATURE_CLOSE' ? 'EARLY' : 'MATURITY',
+        settlementMode: payout.settlementMode ?? calculation.settlementMode ?? null,
+      });
       await outbox(session, 'PAYOUT_CREATED', 'Payout', payout._id, {
         customerId: customer._id,
         schemeId: enrollment._id,
         payoutType: calculation.payoutType,
         method: calculation.method,
+        settlementMode: payout.settlementMode ?? calculation.settlementMode ?? null,
         amountPaise: calculation.amountPaise,
         settlementPrincipalPaise: calculation.settlementPrincipalPaise,
         goldWeightMg: calculation.goldWeightMg,
+        extraPaidPaise: payout.extraPaidPaise ?? 0,
+        billNumber: payout.billNumber ?? null,
       });
       if (input.kind === 'PREMATURE_CLOSE') {
         await outbox(session, 'ENROLLMENT_PREMATURE_CLOSED', 'SchemeEnrollment', enrollment._id, {
@@ -803,6 +1084,7 @@ export function resolveRedemptionAsset(
   if (policy.maturitySettlementAssets.length === 1 && onlyAsset) return onlyAsset;
   if (policy.maturitySettlementAssets.includes('GOLD')) return 'GOLD';
   if (policy.maturitySettlementAssets.includes('CASH')) return 'CASH';
+  if (policy.maturitySettlementAssets.includes('JEWELLERY')) return 'JEWELLERY';
   throw new AppError('SETTLEMENT_ASSET_NOT_ALLOWED', 'No settlement asset is allowed', 409);
 }
 

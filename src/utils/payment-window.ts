@@ -13,6 +13,8 @@ export type PaymentWindowConfig = {
 export type SettlementPolicy = {
   prematureClosureEnabled: boolean;
   prematureClosureMinPaidInstallments: number;
+  /** Elapsed scheme months before EARLY CASH. Nakshathra live CASH uses 6. */
+  prematureClosureMinElapsedMonths?: number;
   prematureClosureSettlementAssets: SettlementAsset[];
   maturitySettlementAssets: SettlementAsset[];
   prematureClosureCashBasis: CashSettlementBasis;
@@ -33,12 +35,13 @@ export const DEFAULT_SETTLEMENT_POLICY: SettlementPolicy = {
   maturityCashBasis: 'CONTRIBUTION_VALUE',
 };
 
-/** Live Nakshathra CASH schemes settle in cash at contribution value. No gold, no invented penalty. */
+/** Live Nakshathra CASH: early cash only after 6 elapsed months; maturity cash or jewellery. */
 export const LIVE_CASH_SETTLEMENT_POLICY: SettlementPolicy = {
   prematureClosureEnabled: true,
   prematureClosureMinPaidInstallments: 1,
+  prematureClosureMinElapsedMonths: 6,
   prematureClosureSettlementAssets: ['CASH'],
-  maturitySettlementAssets: ['CASH'],
+  maturitySettlementAssets: ['CASH', 'JEWELLERY'],
   prematureClosureCashBasis: 'CONTRIBUTION_VALUE',
   maturityCashBasis: 'CONTRIBUTION_VALUE',
 };
@@ -132,9 +135,21 @@ export function validateSettlementPolicy(input: Partial<SettlementPolicy> = {}):
       422,
     );
   }
+  const minElapsed = input.prematureClosureMinElapsedMonths;
+  if (
+    minElapsed != null &&
+    (!Number.isInteger(minElapsed) || minElapsed < 1 || minElapsed > 11)
+  ) {
+    throw new AppError(
+      'VALIDATION_ERROR',
+      'prematureClosureMinElapsedMonths must be an integer from 1 to 11',
+      422,
+    );
+  }
   return {
     prematureClosureEnabled,
     prematureClosureMinPaidInstallments: minPaid,
+    ...(minElapsed != null ? { prematureClosureMinElapsedMonths: minElapsed } : {}),
     prematureClosureSettlementAssets,
     maturitySettlementAssets,
     prematureClosureCashBasis: input.prematureClosureCashBasis ?? 'CONTRIBUTION_VALUE',
@@ -159,8 +174,15 @@ function resolvePrematureAssets(
 
 function uniqueAssets(assets: SettlementAsset[]) {
   const unique = [...new Set(assets)];
-  if (unique.length === 0 || unique.some((asset) => asset !== 'GOLD' && asset !== 'CASH')) {
-    throw new AppError('VALIDATION_ERROR', 'Settlement assets must be GOLD and/or CASH', 422);
+  if (
+    unique.length === 0 ||
+    unique.some((asset) => asset !== 'GOLD' && asset !== 'CASH' && asset !== 'JEWELLERY')
+  ) {
+    throw new AppError(
+      'VALIDATION_ERROR',
+      'Settlement assets must be GOLD, CASH, and/or JEWELLERY',
+      422,
+    );
   }
   return unique;
 }

@@ -12,6 +12,10 @@ export const NAKSHATHRA_CAPPED_MONTHS = 5 as const;
 export const NAKSHATHRA_REDEMPTION_MONTH = 12 as const;
 export const NAKSHATHRA_CAP_STRATEGY = 'AVERAGE_SUCCESSFUL_PAYMENT_FIRST_6' as const;
 export const NAKSHATHRA_CONTRIBUTION_POLICY_VERSION = 1 as const;
+/** Early CASH eligibility is 6 elapsed scheme months, not a payment/installment count. */
+export const NAKSHATHRA_PREMATURE_CLOSURE_MIN_ELAPSED_MONTHS = 6 as const;
+/** Configurable plan/enrollment floor. Live installment amounts remain plan-driven. */
+export const NAKSHATHRA_MINIMUM_PAYMENT_PAISE = 10_000 as const;
 
 export const business = Object.freeze({
   displayName: 'Nakshathra Jewellers',
