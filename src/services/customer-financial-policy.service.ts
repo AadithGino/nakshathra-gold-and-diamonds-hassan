@@ -1,4 +1,5 @@
 import type { ClientSession } from 'mongoose';
+import { env } from '../config/env.js';
 import { Customer, User } from '../models/index.js';
 import { AppError } from '../utils/AppError.js';
 
@@ -22,7 +23,7 @@ export async function assertCustomerCanStartFinancialActivity(
       409,
     );
   }
-  if (customer.kycStatus !== 'VERIFIED') {
+  if (env.KYC_REQUIRED && customer.kycStatus !== 'VERIFIED') {
     throw new AppError(
       'KYC_VERIFICATION_REQUIRED',
       'KYC must be verified before this action',
@@ -35,7 +36,7 @@ export async function assertCustomerCanStartFinancialActivity(
 export async function assertCustomerKycVerified(customerId: string, session?: ClientSession) {
   const customer = await Customer.findById(customerId).session(session ?? null);
   if (!customer) throw new AppError('CUSTOMER_NOT_FOUND', 'Customer not found', 404);
-  if (customer.kycStatus !== 'VERIFIED') {
+  if (env.KYC_REQUIRED && customer.kycStatus !== 'VERIFIED') {
     throw new AppError(
       'KYC_VERIFICATION_REQUIRED',
       'KYC must be verified before this action',

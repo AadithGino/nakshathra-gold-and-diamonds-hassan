@@ -1,4 +1,8 @@
-import { business, customerCodeFloorRegex, formatCustomerCode } from '../config/business.js';
+import {
+  business,
+  customerCodeFloorRegex,
+  formatCustomerCode,
+} from "../config/business.js";
 import {
   buildCursorPage,
   buildOffsetPage,
@@ -8,8 +12,8 @@ import {
   type ListPageResult,
   type ListQuery,
   withKeysetFilter,
-} from '../utils/cursor-pagination.js';
-import mongoose, { type ClientSession } from 'mongoose';
+} from "../utils/cursor-pagination.js";
+import mongoose, { type ClientSession } from "mongoose";
 import { withMongoTransaction } from "../utils/transaction.js";
 import {
   Customer,
@@ -22,6 +26,11 @@ import {
   User,
 } from "../models/index.js";
 import { AppError } from "../utils/AppError.js";
+import {
+  duplicatePhoneConflictError,
+  throwIfDuplicatePhoneKey,
+} from "../utils/mongo-duplicate-key.js";
+import { INDIAN_MOBILE_REGEX, normalizeIndianPhone } from "../utils/phone.js";
 import { hashPassword } from "./auth.service.js";
 import { audit, type AuditContext } from "./audit.service.js";
 import { isOurStorageObject, signAadhaarUrls } from "./storage.service.js";
@@ -31,7 +40,7 @@ import {
   initialKycFromAadhaar,
 } from "./customer-financial-policy.service.js";
 import { withEnrollmentContract } from "../utils/scheme-contract.js";
-import { escapeRegex } from '../utils/regex.js';
+import { escapeRegex } from "../utils/regex.js";
 import type {
   CreateCustomerInput,
   UpdateCustomerInput,
@@ -60,15 +69,15 @@ async function allocatePassbookNumber(session: ClientSession) {
         n: {
           $toInt: {
             $replaceAll: {
-              input: '$customerCode',
+              input: "$customerCode",
               find: business.customerPrefix,
-              replacement: '',
+              replacement: "",
             },
           },
         },
       },
     },
-    { $group: { _id: null, max: { $max: '$n' } } },
+    { $group: { _id: null, max: { $max: "$n" } } },
   ]).session(session);
   const floor = Number(row?.max ?? 0);
 
@@ -91,72 +100,95 @@ export async function createCustomer(
   context: AuditContext & { actorId: string },
 ) {
   assertAadhaarKeys(input.aadhaar);
-  return withMongoTransaction(async (session) => {
-    const customerCode = await allocatePassbookNumber(session);
-    const [user] = await User.create(
-      [
-        {
-          name: input.name,
-          phone: input.phone,
-          passwordHash: await hashPassword(input.password),
-          role: "CUSTOMER",
-          createdBy: context.actorId,
-        },
-      ],
-      { session },
-    );
-    const nominee = input.nominee
-      ? (
-          await Nominee.create(
-            [{ ...input.nominee, createdBy: context.actorId }],
-            { session },
-          )
-        )[0]
-      : null;
-    const kyc = initialKycFromAadhaar(input.aadhaar);
-    const [customer] = await Customer.create(
-      [
-        {
-          userId: user._id,
-          customerCode,
-          address: input.address,
-          aadhaar: {
-            frontKey: input.aadhaar?.frontKey,
-            backKey: input.aadhaar?.backKey,
+  // Defense in depth: routes already normalize via indianPhoneSchema.
+  const phone = normalizeIndianPhone(input.phone);
+  if (!INDIAN_MOBILE_REGEX.test(phone)) {
+    throw new AppError("VALIDATION_ERROR", "Invalid phone number", 422, false, [
+      { path: "phone", message: "Invalid phone number" },
+    ]);
+  }
+
+  try {
+    return await withMongoTransaction(async (session) => {
+      // Application check: User.phone is the global auth identity (customer login).
+      const existing = await User.findOne({ phone, deletedAt: null }).session(session);
+      if (existing) throw duplicatePhoneConflictError();
+
+      const customerCode = await allocatePassbookNumber(session);
+      let user;
+      try {
+        [user] = await User.create(
+          [
+            {
+              name: input.name,
+              phone,
+              passwordHash: await hashPassword(input.password),
+              role: "CUSTOMER",
+              createdBy: context.actorId,
+            },
+          ],
+          { session },
+        );
+      } catch (error) {
+        // Unique index wins races after the pre-check; never leak Mongo 11000.
+        throwIfDuplicatePhoneKey(error);
+        throw error;
+      }
+      const nominee = input.nominee
+        ? (
+            await Nominee.create(
+              [{ ...input.nominee, createdBy: context.actorId }],
+              { session },
+            )
+          )[0]
+        : null;
+      const kyc = initialKycFromAadhaar(input.aadhaar);
+      const [customer] = await Customer.create(
+        [
+          {
+            userId: user._id,
+            customerCode,
+            address: input.address,
+            aadhaar: {
+              frontKey: input.aadhaar?.frontKey,
+              backKey: input.aadhaar?.backKey,
+            },
+            kycStatus: kyc.kycStatus,
+            kycSubmittedAt: kyc.kycSubmittedAt,
+            nomineeId: nominee?._id,
+            createdBy: context.actorId,
           },
-          kycStatus: kyc.kycStatus,
-          kycSubmittedAt: kyc.kycSubmittedAt,
-          nomineeId: nominee?._id,
-          createdBy: context.actorId,
-        },
-      ],
-      { session },
-    );
-    await audit(
-      session,
-      context,
-      "CUSTOMER_CREATED",
-      "Customer",
-      customer._id,
-      undefined,
-      customer.toObject(),
-    );
-    let enrollment = null;
-    if (input.enrollment) {
-      enrollment = await createEnrollmentRecord(
-        {
-          customerId: String(customer._id),
-          schemePlanId: input.enrollment.schemePlanId,
-          startDate: input.enrollment.startDate,
-          monthlyInstallmentPaise:
-            input.enrollment.monthlyInstallmentPaise,
-        },
-        context,
-        session,
+        ],
+        { session },
       );
-    }
-    return { customer, enrollment };
-  }, context.requestId);
+      await audit(
+        session,
+        context,
+        "CUSTOMER_CREATED",
+        "Customer",
+        customer._id,
+        undefined,
+        customer.toObject(),
+      );
+      let enrollment = null;
+      if (input.enrollment) {
+        enrollment = await createEnrollmentRecord(
+          {
+            customerId: String(customer._id),
+            schemePlanId: input.enrollment.schemePlanId,
+            startDate: input.enrollment.startDate,
+            monthlyInstallmentPaise: input.enrollment.monthlyInstallmentPaise,
+          },
+          context,
+          session,
+        );
+      }
+      return { customer, enrollment };
+    }, context.requestId);
+  } catch (error) {
+    throwIfDuplicatePhoneKey(error);
+    throw error;
+  }
 }
 
 export async function listCustomers(
@@ -185,13 +217,13 @@ export async function listCustomers(
         ],
       }
     : {};
-  const sortField = 'createdAt';
+  const sortField = "createdAt";
   const filter = withKeysetFilter(match, query, sortField);
   const baseQuery = Customer.find(filter)
     .populate("userId", "name phone status")
     .populate("nomineeId");
 
-  if (query.mode === 'cursor') {
+  if (query.mode === "cursor") {
     const rows = await baseQuery
       .sort({ [sortField]: -1, _id: -1 })
       .limit(cursorFetchLimit(query))
@@ -224,23 +256,24 @@ export async function getCustomerDetails(customerId: string) {
   if (!customer)
     throw new AppError("CUSTOMER_NOT_FOUND", "Customer not found", 404);
 
-  const [schemes, payments, payouts, paymentIntents, aadhaar] = await Promise.all([
-    SchemeEnrollment.find({ customerId })
-      .populate("schemePlanId")
-      .sort({ createdAt: -1 })
-      .lean(),
-    Payment.find({ customerId })
-      .sort({ paymentDate: -1 })
-      .limit(250)
-      .populate('collectedBy', 'name phone')
-      .lean(),
-    Payout.find({ customerId }).sort({ payoutDate: -1 }).lean(),
-    PaymentIntent.find({ customerId })
-      .sort({ createdAt: -1 })
-      .limit(100)
-      .lean(),
-    signAadhaarUrls((customer as any).aadhaar),
-  ]);
+  const [schemes, payments, payouts, paymentIntents, aadhaar] =
+    await Promise.all([
+      SchemeEnrollment.find({ customerId })
+        .populate("schemePlanId")
+        .sort({ createdAt: -1 })
+        .lean(),
+      Payment.find({ customerId })
+        .sort({ paymentDate: -1 })
+        .limit(250)
+        .populate("collectedBy", "name phone")
+        .lean(),
+      Payout.find({ customerId }).sort({ payoutDate: -1 }).lean(),
+      PaymentIntent.find({ customerId })
+        .sort({ createdAt: -1 })
+        .limit(100)
+        .lean(),
+      signAadhaarUrls((customer as any).aadhaar),
+    ]);
 
   return {
     customer: { ...customer, aadhaar },
@@ -289,7 +322,11 @@ export async function updateCustomer(
         frontKey: input.aadhaar.frontKey ?? previousFront,
         backKey: input.aadhaar.backKey ?? previousBack,
       });
-      const kycChanged = applyAadhaarKycTransition(customer, previousFront, previousBack);
+      const kycChanged = applyAadhaarKycTransition(
+        customer,
+        previousFront,
+        previousBack,
+      );
       if (kycChanged) {
         await audit(
           session,
@@ -349,7 +386,8 @@ export async function verifyCustomerKyc(
 ) {
   await withMongoTransaction(async (session) => {
     const customer = await Customer.findById(customerId).session(session);
-    if (!customer) throw new AppError("CUSTOMER_NOT_FOUND", "Customer not found", 404);
+    if (!customer)
+      throw new AppError("CUSTOMER_NOT_FOUND", "Customer not found", 404);
     const front = customer.get("aadhaar.frontKey");
     const back = customer.get("aadhaar.backKey");
     if (!front || !back) {
@@ -373,7 +411,15 @@ export async function verifyCustomerKyc(
     customer.kycRejectionReason = undefined;
     customer.updatedBy = context.actorId;
     await customer.save({ session });
-    await audit(session, context, "KYC_VERIFIED", "Customer", customer._id, before, customer.toObject());
+    await audit(
+      session,
+      context,
+      "KYC_VERIFIED",
+      "Customer",
+      customer._id,
+      before,
+      customer.toObject(),
+    );
   }, context.requestId);
   return getCustomerDetails(customerId);
 }
@@ -385,11 +431,16 @@ export async function rejectCustomerKyc(
 ) {
   const trimmed = reason.trim();
   if (!trimmed) {
-    throw new AppError("KYC_REJECTION_REASON_REQUIRED", "A rejection reason is required", 422);
+    throw new AppError(
+      "KYC_REJECTION_REASON_REQUIRED",
+      "A rejection reason is required",
+      422,
+    );
   }
   await withMongoTransaction(async (session) => {
     const customer = await Customer.findById(customerId).session(session);
-    if (!customer) throw new AppError("CUSTOMER_NOT_FOUND", "Customer not found", 404);
+    if (!customer)
+      throw new AppError("CUSTOMER_NOT_FOUND", "Customer not found", 404);
     if (customer.kycStatus !== "PENDING" && customer.kycStatus !== "VERIFIED") {
       throw new AppError(
         "KYC_NOT_REVIEWABLE",
@@ -404,7 +455,15 @@ export async function rejectCustomerKyc(
     customer.kycRejectionReason = trimmed;
     customer.updatedBy = context.actorId;
     await customer.save({ session });
-    await audit(session, context, "KYC_REJECTED", "Customer", customer._id, before, customer.toObject());
+    await audit(
+      session,
+      context,
+      "KYC_REJECTED",
+      "Customer",
+      customer._id,
+      before,
+      customer.toObject(),
+    );
   }, context.requestId);
   return getCustomerDetails(customerId);
 }

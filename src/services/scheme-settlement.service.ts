@@ -28,6 +28,7 @@ import {
 import type { PayoutMethod, PayoutType, SettlementAsset, SettlementMode } from '../models/enums.js';
 import { SETTLEMENT_ASSETS } from '../models/enums.js';
 import { NAKSHATHRA_PREMATURE_CLOSURE_MIN_ELAPSED_MONTHS } from '../config/business.js';
+import { env } from '../config/env.js';
 import { audit, outbox, type AuditContext } from './audit.service.js';
 import { assertDateInOpenPeriod } from './accounting-period.service.js';
 import { assertCustomerKycVerified } from './customer-financial-policy.service.js';
@@ -439,7 +440,7 @@ export function collectSettlementBlockersFromState(input: {
 
   if (TERMINAL_ENROLLMENT.has(enrollment.status)) reasons.push('SCHEME_ALREADY_SETTLED');
   if (!['ACTIVE', 'MATURED'].includes(enrollment.status)) reasons.push('SCHEME_NOT_REDEEMABLE');
-  if (customer?.kycStatus && customer.kycStatus !== 'VERIFIED') {
+  if (env.KYC_REQUIRED && customer?.kycStatus && customer.kycStatus !== 'VERIFIED') {
     reasons.push('KYC_VERIFICATION_REQUIRED');
   }
   if (lockStillHeld(enrollment, at)) reasons.push('SCHEME_SETTLEMENT_IN_PROGRESS');

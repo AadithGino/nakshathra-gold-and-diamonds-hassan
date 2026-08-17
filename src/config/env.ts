@@ -15,6 +15,8 @@ const schema = z
     COOKIE_SECURE: bool.default(false),
     BUSINESS_TIMEZONE: z.literal('Asia/Kolkata').default('Asia/Kolkata'),
     BOOTSTRAP_DEMO: bool.default(false),
+    /** When false, enrollment/settlement skip KYC verification checks (first frontend integration). */
+    KYC_REQUIRED: bool.default(true),
     PHONEPE_ENABLED: bool.default(false),
     PHONEPE_ENV: z.enum(['SANDBOX', 'PRODUCTION']).default('SANDBOX'),
     PHONEPE_CLIENT_ID: z.string().default(''),
@@ -33,6 +35,7 @@ const schema = z
     AWS_S3_SIGNED_URL_TTL: z.coerce.number().int().positive().default(3600),
     MAX_UPLOAD_BYTES: z.coerce.number().int().positive().default(10_485_760),
     JEWELLERY_ID: z.string().default('nakshathra'),
+    JEWELLERY_NAME: z.string().default('Nakshathra'),
     JEWELLERY_SLUG: z.string().default('jewellery'),
   })
   .superRefine((env, ctx) => {

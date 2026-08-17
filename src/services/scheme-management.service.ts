@@ -1,7 +1,10 @@
 import type { ListPageResult, ListQuery } from "../utils/cursor-pagination.js";
 import { type ClientSession } from "mongoose";
 import { LIVE_CONTRIBUTION_DEFAULTS } from "../utils/contribution-policy.js";
-import { formatEnrollmentNumber, LIVE_SCHEME_TYPE } from "../config/business.js";
+import {
+  formatEnrollmentNumber,
+  LIVE_SCHEME_TYPE,
+} from "../config/business.js";
 import { AppError } from "../utils/AppError.js";
 import { withMongoTransaction } from "../utils/transaction.js";
 import {
@@ -21,7 +24,10 @@ import {
 import { businessDayRange, businessYear } from "../utils/time.js";
 import { audit, outbox, type AuditContext } from "./audit.service.js";
 import { aggregateEnrollmentLedger } from "../utils/enrollment-ledger.js";
-import { buildPlanSnapshot, withEnrollmentContract } from "../utils/scheme-contract.js";
+import {
+  buildPlanSnapshot,
+  withEnrollmentContract,
+} from "../utils/scheme-contract.js";
 import {
   DEFAULT_PAYMENT_WINDOW,
   LIVE_CASH_SETTLEMENT_POLICY,
@@ -45,7 +51,10 @@ import {
   listRedemptionReadyEnrollments,
   type EnrollmentListFilters,
 } from "./enrollment-collection.service.js";
-import { executeSchemeSettlement, previewSchemeSettlement } from "./scheme-settlement.service.js";
+import {
+  executeSchemeSettlement,
+  previewSchemeSettlement,
+} from "./scheme-settlement.service.js";
 import type { SettlementAsset } from "../models/enums.js";
 
 const ENROLLMENT_SCOPE_PREFIX = "ENROLLMENT";
@@ -70,7 +79,9 @@ export async function createEnrollmentRecord(
 ) {
   const [customer, plan] = await Promise.all([
     Customer.findById(input.customerId).session(session),
-    SchemePlan.findOne({ _id: input.schemePlanId, status: "ACTIVE" }).session(session),
+    SchemePlan.findOne({ _id: input.schemePlanId, status: "ACTIVE" }).session(
+      session,
+    ),
   ]);
   if (!customer || !plan) {
     throw new AppError(
@@ -138,16 +149,21 @@ export async function createEnrollmentRecord(
         paymentWindowStartDay: planSnapshot.paymentWindowStartDay,
         paymentWindowEndDay: planSnapshot.paymentWindowEndDay,
         prematureClosureEnabled: planSnapshot.prematureClosureEnabled,
-        prematureClosureMinPaidInstallments: planSnapshot.prematureClosureMinPaidInstallments,
-        prematureClosureMinElapsedMonths: planSnapshot.prematureClosureMinElapsedMonths,
-        prematureClosureSettlementAssets: planSnapshot.prematureClosureSettlementAssets,
+        prematureClosureMinPaidInstallments:
+          planSnapshot.prematureClosureMinPaidInstallments,
+        prematureClosureMinElapsedMonths:
+          planSnapshot.prematureClosureMinElapsedMonths,
+        prematureClosureSettlementAssets:
+          planSnapshot.prematureClosureSettlementAssets,
         maturitySettlementAssets: planSnapshot.maturitySettlementAssets,
         prematureClosureCashBasis: planSnapshot.prematureClosureCashBasis,
         maturityCashBasis: planSnapshot.maturityCashBasis,
         planSnapshot,
         snapshotSource: "ENROLLMENT",
         snapshotCapturedAt: new Date(),
-        statusHistory: [{ status: "ACTIVE", at: new Date(), actorId: context.actorId }],
+        statusHistory: [
+          { status: "ACTIVE", at: new Date(), actorId: context.actorId },
+        ],
         createdBy: context.actorId,
       },
     ],
@@ -174,12 +190,15 @@ export const createSchemePlan = (
 ) =>
   withMongoTransaction(async (session) => {
     const paymentWindow = validatePaymentWindow({
-      paymentWindowType: input.paymentWindowType ?? DEFAULT_PAYMENT_WINDOW.paymentWindowType,
+      paymentWindowType:
+        input.paymentWindowType ?? DEFAULT_PAYMENT_WINDOW.paymentWindowType,
       fixedPaymentDay: input.fixedPaymentDay,
       paymentWindowStartDay: input.paymentWindowStartDay,
       paymentWindowEndDay: input.paymentWindowEndDay,
     });
-    const settlementPolicy = validateSettlementPolicy(LIVE_CASH_SETTLEMENT_POLICY);
+    const settlementPolicy = validateSettlementPolicy(
+      LIVE_CASH_SETTLEMENT_POLICY,
+    );
     const [plan] = await SchemePlan.create(
       [
         {
@@ -192,7 +211,8 @@ export const createSchemePlan = (
           flexibleMonths: LIVE_CONTRIBUTION_DEFAULTS.flexibleMonths,
           capMonths: LIVE_CONTRIBUTION_DEFAULTS.capMonths,
           capStrategy: LIVE_CONTRIBUTION_DEFAULTS.capStrategy,
-          contributionPolicyVersion: LIVE_CONTRIBUTION_DEFAULTS.contributionPolicyVersion,
+          contributionPolicyVersion:
+            LIVE_CONTRIBUTION_DEFAULTS.contributionPolicyVersion,
           makingChargeWaiverPercent: 100,
           gstRateBasisPoints: 300,
           version: 1,
@@ -214,7 +234,10 @@ export const createSchemePlan = (
   }, context.requestId);
 
 export const listSchemePlans = () =>
-  SchemePlan.find({ deletedAt: null }).sort({ createdAt: -1 }).limit(500).lean();
+  SchemePlan.find({ deletedAt: null })
+    .sort({ createdAt: -1 })
+    .limit(500)
+    .lean();
 
 export const listActiveSchemePlans = () =>
   SchemePlan.find({ deletedAt: null, status: "ACTIVE", type: LIVE_SCHEME_TYPE })
@@ -249,13 +272,19 @@ export async function updateSchemePlan(
       paymentWindowType: input.paymentWindowType ?? plan.paymentWindowType,
       fixedPaymentDay:
         input.fixedPaymentDay ??
-        (input.paymentWindowType === "DATE_RANGE" ? undefined : plan.fixedPaymentDay),
+        (input.paymentWindowType === "DATE_RANGE"
+          ? undefined
+          : plan.fixedPaymentDay),
       paymentWindowStartDay:
         input.paymentWindowStartDay ??
-        (input.paymentWindowType === "FIXED_DAY" ? undefined : plan.paymentWindowStartDay),
+        (input.paymentWindowType === "FIXED_DAY"
+          ? undefined
+          : plan.paymentWindowStartDay),
       paymentWindowEndDay:
         input.paymentWindowEndDay ??
-        (input.paymentWindowType === "FIXED_DAY" ? undefined : plan.paymentWindowEndDay),
+        (input.paymentWindowType === "FIXED_DAY"
+          ? undefined
+          : plan.paymentWindowEndDay),
     });
     const nextPolicy = validateSettlementPolicy(LIVE_CASH_SETTLEMENT_POLICY);
     Object.assign(plan, input, nextWindow, nextPolicy, {
@@ -275,7 +304,8 @@ export async function updateSchemePlan(
     plan.flexibleMonths = LIVE_CONTRIBUTION_DEFAULTS.flexibleMonths;
     plan.capMonths = LIVE_CONTRIBUTION_DEFAULTS.capMonths;
     plan.capStrategy = LIVE_CONTRIBUTION_DEFAULTS.capStrategy;
-    plan.contributionPolicyVersion = LIVE_CONTRIBUTION_DEFAULTS.contributionPolicyVersion;
+    plan.contributionPolicyVersion =
+      LIVE_CONTRIBUTION_DEFAULTS.contributionPolicyVersion;
     plan.version = (Number(plan.version) || 1) + 1;
     await plan.save({ session });
     if (nextWindow.paymentWindowType === "DATE_RANGE") {
@@ -333,9 +363,12 @@ export async function getEnrollmentDetails(enrollmentId: string) {
     Payment.find({ schemeId: enrollmentId })
       .sort({ paymentDate: -1 })
       .limit(100)
-      .populate('collectedBy', 'name phone')
+      .populate("collectedBy", "name phone")
       .lean(),
-    Payout.find({ schemeId: enrollmentId }).sort({ payoutDate: -1 }).limit(50).lean(),
+    Payout.find({ schemeId: enrollmentId })
+      .sort({ payoutDate: -1 })
+      .limit(50)
+      .lean(),
   ]);
   if (!enrollment)
     throw new AppError("SCHEME_NOT_FOUND", "Enrollment not found", 404);
@@ -351,7 +384,8 @@ export async function getEnrollmentDetails(enrollmentId: string) {
 
 export async function getActiveEnrollmentForCustomer(customerId: string) {
   const customer = await Customer.findById(customerId).lean();
-  if (!customer) throw new AppError("CUSTOMER_NOT_FOUND", "Customer not found", 404);
+  if (!customer)
+    throw new AppError("CUSTOMER_NOT_FOUND", "Customer not found", 404);
   const active = await SchemeEnrollment.findOne({
     customerId,
     status: "ACTIVE",
@@ -370,7 +404,13 @@ export async function getActiveEnrollmentForCustomer(customerId: string) {
 
 export async function updateEnrollmentStatus(
   enrollmentId: string,
-  status: "ACTIVE" | "MATURED" | "REDEEMED" | "CLOSED" | "WITHDRAWN" | "CANCELLED",
+  status:
+    | "ACTIVE"
+    | "MATURED"
+    | "REDEEMED"
+    | "CLOSED"
+    | "WITHDRAWN"
+    | "CANCELLED",
   reason: string,
   context: AuditContext & { actorId: string },
 ) {
@@ -379,8 +419,16 @@ export async function updateEnrollmentStatus(
       await SchemeEnrollment.findById(enrollmentId).session(session);
     if (!enrollment)
       throw new AppError("SCHEME_NOT_FOUND", "Enrollment not found", 404);
-    if (["REDEEMED", "CLOSED", "WITHDRAWN", "CANCELLED"].includes(enrollment.status))
-      throw new AppError("SCHEME_ALREADY_SETTLED", "Scheme is already settled", 409);
+    if (
+      ["REDEEMED", "CLOSED", "WITHDRAWN", "CANCELLED"].includes(
+        enrollment.status,
+      )
+    )
+      throw new AppError(
+        "SCHEME_ALREADY_SETTLED",
+        "Scheme is already settled",
+        409,
+      );
     if (status === "CANCELLED")
       throw new AppError(
         "USE_ENROLLMENT_CANCELLATION_FLOW",
@@ -414,7 +462,10 @@ export async function updateEnrollmentStatus(
           );
         }
       } else {
-        const ledger = await aggregateEnrollmentLedger(String(enrollment._id), session);
+        const ledger = await aggregateEnrollmentLedger(
+          String(enrollment._id),
+          session,
+        );
         if (ledger.paymentsCompleted !== 11)
           throw new AppError(
             "INSTALLMENTS_INCOMPLETE",
@@ -464,7 +515,10 @@ export async function cancelEnrollment(
   context: AuditContext & { actorId: string },
 ) {
   return withMongoTransaction(async (session) => {
-    const { enrollment } = await assertEnrollmentUnusedForCancel(enrollmentId, session);
+    const { enrollment } = await assertEnrollmentUnusedForCancel(
+      enrollmentId,
+      session,
+    );
     if (enrollment.status === "CANCELLED") return enrollment;
     const before = enrollment.toObject();
     enrollment.status = "CANCELLED";
@@ -485,19 +539,31 @@ export async function cancelEnrollment(
       before,
       enrollment.toObject(),
     );
-    await outbox(session, "ENROLLMENT_CANCELLED", "SchemeEnrollment", enrollment._id, {
-      customerId: enrollment.customerId,
-      reason,
-    });
+    await outbox(
+      session,
+      "ENROLLMENT_CANCELLED",
+      "SchemeEnrollment",
+      enrollment._id,
+      {
+        customerId: enrollment.customerId,
+        reason,
+      },
+    );
     return enrollment;
   }, context.requestId);
 }
 
-export function listOverdueCollection(listQuery: ListQuery, filters: EnrollmentListFilters = {}) {
+export function listOverdueCollection(
+  listQuery: ListQuery,
+  filters: EnrollmentListFilters = {},
+) {
   return listOverdueEnrollments(listQuery, filters);
 }
 
-export function listDueCollection(listQuery: ListQuery, filters: EnrollmentListFilters = {}) {
+export function listDueCollection(
+  listQuery: ListQuery,
+  filters: EnrollmentListFilters = {},
+) {
   return listDueEnrollments(listQuery, filters);
 }
 
@@ -519,7 +585,10 @@ export function previewPrematureClosure(
   });
 }
 
-export function previewRedemption(enrollmentId: string, settlementAsset?: SettlementAsset) {
+export function previewRedemption(
+  enrollmentId: string,
+  settlementAsset?: SettlementAsset,
+) {
   return previewSchemeSettlement({
     enrollmentId,
     kind: "REDEEM",
@@ -554,10 +623,11 @@ export const listGoldRates = () => {
 
 export async function getGoldRate(rateId: string) {
   const rate = await GoldRate.findById(rateId)
-    .populate('createdBy', 'name')
-    .populate('updatedBy', 'name')
+    .populate("createdBy", "name")
+    .populate("updatedBy", "name")
     .lean();
-  if (!rate) throw new AppError('GOLD_RATE_NOT_FOUND', 'Gold rate not found', 404);
+  if (!rate)
+    throw new AppError("GOLD_RATE_NOT_FOUND", "Gold rate not found", 404);
   return rate;
 }
 
@@ -584,7 +654,7 @@ export async function createGoldRate(
     );
     return created;
   }, context.requestId);
-  const { publishGoldRateChange } = await import('../realtime/socket.js');
+  const { publishGoldRateChange } = await import("../realtime/socket.js");
   void publishGoldRateChange(rate.toObject()).catch(() => undefined);
   return rate;
 }
@@ -611,7 +681,9 @@ export async function updateGoldRate(
     }
     const before = existing.toObject();
     Object.assign(existing, input, {
-      ...(input.effectiveFrom ? { effectiveFrom: businessDayRange(input.effectiveFrom).start } : {}),
+      ...(input.effectiveFrom
+        ? { effectiveFrom: businessDayRange(input.effectiveFrom).start }
+        : {}),
       updatedBy: context.actorId,
     });
     await existing.save({ session });
@@ -626,7 +698,7 @@ export async function updateGoldRate(
     );
     return existing;
   }, context.requestId);
-  const { publishGoldRateChange } = await import('../realtime/socket.js');
+  const { publishGoldRateChange } = await import("../realtime/socket.js");
   void publishGoldRateChange(rate.toObject()).catch(() => undefined);
   return rate;
 }

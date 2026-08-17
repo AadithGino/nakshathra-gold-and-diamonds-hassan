@@ -4,6 +4,11 @@ import mongoose from 'mongoose';
 import { env } from '../config/env.js';
 import { logger } from '../config/logger.js';
 import { AppError, Errors } from '../utils/AppError.js';
+import {
+  duplicateKeyFields,
+  duplicatePhoneConflictError,
+  isDuplicateKeyError,
+} from '../utils/mongo-duplicate-key.js';
 
 export const notFound: RequestHandler = (req, _res, next) =>
   next(new AppError('ROUTE_NOT_FOUND', `Route ${req.method} ${req.path} not found`, 404));
@@ -16,18 +21,11 @@ export const errorHandler: ErrorRequestHandler = (error, req, res, _next) => {
     );
   if (error instanceof mongoose.Error.CastError)
     appError = Errors.validation([{ path: error.path, message: 'Invalid identifier' }]);
-  if ((error as any)?.code === 11000) {
-    const keyPattern = (error as any)?.keyPattern ?? {};
-    const keyValue = (error as any)?.keyValue ?? {};
-    const field = Object.keys(keyPattern)[0] ?? Object.keys(keyValue)[0] ?? '';
-    if (field === 'phone') {
-      appError = new AppError(
-        'DUPLICATE_PHONE',
-        'A customer with this phone number already exists',
-        409,
-        false,
-        [{ path: 'phone', message: 'This phone number is already registered' }],
-      );
+  if (isDuplicateKeyError(error)) {
+    const fields = duplicateKeyFields(error);
+    const field = fields[0] ?? '';
+    if (field === 'phone' || fields.includes('phone')) {
+      appError = duplicatePhoneConflictError();
     } else if (field === 'customerCode') {
       appError = new AppError(
         'DUPLICATE_CUSTOMER_CODE',

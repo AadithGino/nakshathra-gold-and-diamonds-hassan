@@ -25,7 +25,8 @@
     "migrate:scheme-operations": "tsx src/scripts/migrations/2026-08-scheme-operations.ts",
     "migrate:nakshathra-domain-config": "tsx src/scripts/migrations/2026-08-nakshathra-domain-config.ts",
     "migrate:nakshathra-scheme-engine": "tsx src/scripts/migrations/2026-08-nakshathra-scheme-engine.ts",
-    "migrate:nakshathra-admin-ops": "tsx src/scripts/migrations/2026-08-nakshathra-admin-ops.ts"
+    "migrate:nakshathra-admin-ops": "tsx src/scripts/migrations/2026-08-nakshathra-admin-ops.ts",
+    "migrate:user-phone-uniqueness": "tsx src/scripts/migrations/2026-08-user-phone-uniqueness.ts"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1097.0",
