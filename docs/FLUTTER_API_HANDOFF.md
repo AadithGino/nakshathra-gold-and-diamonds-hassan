@@ -10,7 +10,7 @@ Hand this file to the Flutter developer. It describes how the live backend works
 
 **Example JSON:** every customer, staff, auth, and upload endpoint has sample request/response bodies in [Appendix A](#appendix-a--example-request--response-payloads).
 
-**Flow diagrams:** screen maps, sequence charts, and permission flows for both apps are in [FLUTTER_APP_FLOWS.md](./FLUTTER_APP_FLOWS.md).
+**Flow diagrams:** screen maps, sequence charts, permission flows, **business rules**, and **test scenarios** are in [FLUTTER_APP_FLOWS.md](./FLUTTER_APP_FLOWS.md).
 
 ---
 
