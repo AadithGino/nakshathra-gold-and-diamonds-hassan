@@ -3,6 +3,7 @@ import adminRoutes from './admin/index.js';
 import authRoutes from './auth.routes.js';
 import customerRoutes from './customer/index.js';
 import gatewayRoutes from './gateway.routes.js';
+import paymentsRoutes from './payments.routes.js';
 import staffRoutes from './staff/index.js';
 import uploadRoutes from './upload.routes.js';
 
@@ -12,6 +13,7 @@ apiRouter.use('/auth', authRoutes);
 apiRouter.use('/admin', adminRoutes);
 apiRouter.use('/staff', staffRoutes);
 apiRouter.use('/customer', customerRoutes);
+apiRouter.use('/payments', paymentsRoutes);
 apiRouter.use('/uploads', uploadRoutes);
 apiRouter.use('/webhooks', gatewayRoutes);
 

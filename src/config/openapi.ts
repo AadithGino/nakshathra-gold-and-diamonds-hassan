@@ -183,5 +183,12 @@ export const openapi = {
       },
     },
     '/webhooks/phonepe': { post: { summary: 'Verified PhonePe webhook' } },
+    '/payments/phonepe/config': {
+      get: {
+        summary:
+          'PhonePe client credentials and SDK init config for authenticated customer, staff, or admin apps',
+        security: staffSecurity,
+      },
+    },
   },
 };
