@@ -31,6 +31,7 @@ import {
   buildInstallmentSchedule,
   summarizeInstallmentSchedule,
 } from './installment-schedule.service.js';
+import { countRedemptionReadyEnrollments } from './enrollment-collection.service.js';
 
 const total = (rows: any[]) => rows[0]?.total ?? 0;
 const PAYMENT_METHOD_ORDER = ['CASH', 'UPI', 'BANK', 'CARD'] as const;
@@ -181,21 +182,7 @@ export async function financialDashboard(filter: Record<string, unknown> = {}) {
     'bankCollectionPaise',
     'cardCollectionPaise',
   ].reduce((sum, key) => sum + (methods[key] ?? 0), 0);
-  const redemptionReadySchemes = await SchemeEnrollment.countDocuments({
-    status: mongoose.trusted({ $in: ['ACTIVE', 'MATURED'] }),
-    $or: [
-      mongoose.trusted({
-        schemeType: 'CASH',
-        redemptionStartDate: mongoose.trusted({ $lte: now }),
-      }),
-      mongoose.trusted({
-        schemeType: mongoose.trusted({ $ne: 'CASH' }),
-        paymentsCompleted: 11,
-        redemptionStartDate: mongoose.trusted({ $lte: now }),
-        redemptionEndDate: mongoose.trusted({ $gt: now }),
-      }),
-    ],
-  });
+  const redemptionReadySchemes = await countRedemptionReadyEnrollments({}, now);
   const scheduleEnrollments = await SchemeEnrollment.find({ status: 'ACTIVE' })
     .populate({ path: 'customerId', populate: { path: 'userId', select: 'name phone' } })
     .populate('schemePlanId', 'name')

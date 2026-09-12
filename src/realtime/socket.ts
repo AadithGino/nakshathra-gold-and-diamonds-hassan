@@ -110,16 +110,18 @@ export function initSocketServer(httpServer: HttpServer) {
 
   io = new Server(httpServer, {
     path: '/socket.io',
-    cors: {
-      origin: (origin, callback) => {
-        if (!origin || env.origins.includes(origin)) {
-          callback(null, true);
-          return;
-        }
-        callback(new Error('CORS_ORIGIN_DENIED'), false);
-      },
-      credentials: true,
-    },
+    cors: env.CORS_DISABLED
+      ? { origin: true, credentials: true }
+      : {
+          origin: (origin, callback) => {
+            if (!origin || env.origins.includes(origin)) {
+              callback(null, true);
+              return;
+            }
+            callback(new Error('CORS_ORIGIN_DENIED'), false);
+          },
+          credentials: true,
+        },
     // Allow polling-first clients; websocket upgrade needs proxy Upgrade headers.
     transports: ['polling', 'websocket'],
   });

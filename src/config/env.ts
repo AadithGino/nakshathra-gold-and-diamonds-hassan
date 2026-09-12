@@ -8,6 +8,8 @@ const schema = z
     PORT: z.coerce.number().int().positive().default(2020),
     MONGODB_URI: z.string().min(1),
     WEB_ORIGINS: z.string().min(1),
+    /** When true, allow any browser origin (development only). */
+    CORS_DISABLED: bool.default(false),
     JWT_ACCESS_SECRET: z.string().min(32),
     JWT_REFRESH_SECRET: z.string().min(32),
     ACCESS_TOKEN_TTL_MINUTES: z.coerce.number().int().positive().default(480),
@@ -58,6 +60,13 @@ const schema = z
         code: 'custom',
         path: ['COOKIE_SECURE'],
         message: 'COOKIE_SECURE must be true in production',
+      });
+    }
+    if (env.NODE_ENV === 'production' && env.CORS_DISABLED) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['CORS_DISABLED'],
+        message: 'CORS_DISABLED must be false in production',
       });
     }
     if (env.NODE_ENV === 'production' && env.PHONEPE_ENABLED && env.PHONEPE_ENV !== 'PRODUCTION') {

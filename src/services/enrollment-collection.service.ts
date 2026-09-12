@@ -528,6 +528,71 @@ async function scanEnrollments<T>(input: {
   };
 }
 
+async function countScannedEnrollments(input: {
+  match: Record<string, unknown>;
+  sort?: ScanSort;
+  at?: Date;
+  include: (
+    enrollment: any,
+    schedule: InstallmentScheduleItem[],
+    ctx: ScanBatchContext,
+  ) => boolean;
+}) {
+  const at = input.at ?? new Date();
+  const sort = input.sort ?? 'oldest';
+  const { field, direction } = sortSpec(sort);
+  let cursor: { field: string; value: unknown; id: mongoose.Types.ObjectId } | null = null;
+  let count = 0;
+  let exhausted = false;
+
+  while (!exhausted) {
+    const filter = afterCursorFilter(input.match, cursor, direction);
+    const batch = await populateEnrollmentQuery(filter)
+      .sort({ [field]: direction, _id: direction })
+      .limit(SCAN_BATCH)
+      .lean();
+    if (!batch.length) break;
+
+    const ctx = await loadScanBatchContext(batch);
+    for (const enrollment of batch) {
+      cursor = { field, value: enrollment[field], id: enrollment._id };
+      const { schedule } = getEnrollmentInstallmentState(
+        enrollment,
+        ctx.paymentsByScheme.get(String(enrollment._id)) ?? [],
+        at,
+      );
+      if (input.include(enrollment, schedule, ctx)) count += 1;
+    }
+    if (batch.length < SCAN_BATCH) exhausted = true;
+  }
+
+  return count;
+}
+
+async function buildRedemptionReadyMatch(filters: EnrollmentListFilters = {}, now = new Date()) {
+  const match = await enrollmentMongoFilter(filters);
+  match.status = mongoose.trusted({ $in: ['ACTIVE', 'MATURED'] });
+  match.redemptionStartDate = mongoose.trusted({ $lte: now });
+  return match;
+}
+
+/** Same eligibility as GET /admin/enrollments/redemption-ready — for dashboard KPIs. */
+export async function countRedemptionReadyEnrollments(
+  filters: EnrollmentListFilters = {},
+  at = new Date(),
+) {
+  const match = await buildRedemptionReadyMatch(filters, at);
+  return countScannedEnrollments({
+    match,
+    sort: 'oldest',
+    at,
+    include: (enrollment, _schedule, ctx) => {
+      const state = ctx.eligibilityByScheme.get(String(enrollment._id));
+      return Boolean(state && isRedemptionReadyFromState(enrollment, state, at));
+    },
+  });
+}
+
 export async function listOverdueEnrollments(
   listQuery: ListQuery,
   filters: EnrollmentListFilters & { minDaysOverdue?: number; maxDaysOverdue?: number; sort?: ScanSort } = {},
@@ -582,11 +647,7 @@ export async function listRedemptionReadyEnrollments(
   filters: EnrollmentListFilters = {},
 ) {
   const now = new Date();
-  const match = await enrollmentMongoFilter({
-    ...filters,
-  });
-  match.status = mongoose.trusted({ $in: ['ACTIVE', 'MATURED'] });
-  match.redemptionStartDate = mongoose.trusted({ $lte: now });
+  const match = await buildRedemptionReadyMatch(filters, now);
   return scanEnrollments({
     match,
     listQuery,

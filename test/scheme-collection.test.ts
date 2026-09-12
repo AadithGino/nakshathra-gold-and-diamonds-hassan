@@ -11,6 +11,7 @@ import {
   User,
 } from '../src/models/index.js';
 import {
+  countRedemptionReadyEnrollments,
   listDueEnrollments,
   listOverdueEnrollments,
   listRedemptionReadyEnrollments,
@@ -19,6 +20,7 @@ import {
   cancelEnrollment,
   updateEnrollmentStatus,
 } from '../src/services/scheme-management.service.js';
+import { financialDashboard } from '../src/services/report.service.js';
 import { enrollmentDates } from '../src/services/scheme.service.js';
 import { AppError } from '../src/utils/AppError.js';
 import { schemeAdminRouter } from '../src/routes/admin/scheme-admin.routes.js';
@@ -63,6 +65,7 @@ async function seedEnrollment(opts: {
   redemptionStartDate?: Date;
   redemptionEndDate?: Date;
   phoneName?: { name: string; phone: string };
+  schemeType?: 'CASH' | 'GOLD_WEIGHT';
 }) {
   const { actor, customerUser, customer, suffix } = await seedActor();
   if (opts.phoneName) {
@@ -76,7 +79,7 @@ async function seedEnrollment(opts: {
       customerId: customer._id,
       schemePlanId: actor._id,
       enrollmentNumber: opts.enrollmentNumber ?? `ENR-OPS-${suffix}`,
-      schemeType: 'GOLD_WEIGHT',
+      schemeType: opts.schemeType ?? 'GOLD_WEIGHT',
       startDate: opts.startDate,
       ...dates,
       ...(opts.redemptionStartDate ? { redemptionStartDate: opts.redemptionStartDate } : {}),
@@ -231,6 +234,34 @@ describe('scheme collection APIs and cancellation', () => {
     expect(page.items.some((item) => item.enrollmentId === String(ready.enrollment._id))).toBe(true);
     expect(page.items.every((item) => item.paymentsCompleted === 11)).toBe(true);
     expect(page.items[0]?.allowedSettlementAssets).toEqual(expect.arrayContaining(['GOLD', 'CASH']));
+  });
+
+  it('keeps dashboard redemption-ready count aligned with the redemption-ready list', async () => {
+    const now = new Date();
+    await seedEnrollment({
+      startDate: new Date('2025-08-01T00:00:00+05:30'),
+      paidMonths: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11],
+      paymentsCompleted: 11,
+      status: 'MATURED',
+      redemptionStartDate: new Date(now.getTime() - 86_400_000),
+      redemptionEndDate: new Date(now.getTime() + 10 * 86_400_000),
+    });
+    await seedEnrollment({
+      schemeType: 'CASH',
+      startDate: new Date('2025-09-01T00:00:00+05:30'),
+      paidMonths: [],
+      paymentsCompleted: 0,
+      redemptionStartDate: new Date(now.getTime() - 86_400_000),
+      redemptionEndDate: new Date(now.getTime() + 10 * 86_400_000),
+    });
+
+    const page = await listRedemptionReadyEnrollments(listQuery, {});
+    const count = await countRedemptionReadyEnrollments();
+    const dashboard = await financialDashboard();
+
+    expect(count).toBe(page.items.length);
+    expect(dashboard.redemptionReadySchemes).toBe(count);
+    expect(count).toBe(1);
   });
 
   it('cancels an unused ACTIVE enrollment with audit and outbox', async () => {

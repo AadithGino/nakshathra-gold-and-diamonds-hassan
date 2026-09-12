@@ -31,6 +31,10 @@ app.use(pinoHttp({ logger, genReqId: (req: any) => (req as any).id }));
 app.use(helmet({ crossOriginResourcePolicy: { policy: 'cross-origin' } }));
 app.use(
   cors((request, callback) => {
+    if (env.CORS_DISABLED) {
+      callback(null, { origin: true, credentials: true });
+      return;
+    }
     const origin = request.get('origin');
     let isSameOrigin = false;
     if (origin) {
