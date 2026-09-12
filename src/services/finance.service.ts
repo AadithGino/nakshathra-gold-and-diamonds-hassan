@@ -32,6 +32,7 @@ import {
   StaffProfile,
 } from '../models/index.js';
 import { audit, outbox, type AuditContext } from './audit.service.js';
+import { resolveStaffProfile } from './staff.service.js';
 import mongoose from 'mongoose';
 import { activeGoldRate, getPaymentRules, goldWeightMg } from './scheme.service.js';
 import { allocateReceiptNumber } from './payment.service.js';
@@ -363,9 +364,8 @@ export async function submitCash(
 ) {
   paise(input.amountPaise);
   return withMongoTransaction(async (session) => {
-    const staffObjectId = new mongoose.Types.ObjectId(input.staffId);
-    const profile = await StaffProfile.findOne({ userId: staffObjectId }).session(session);
-    if (!profile) throw new AppError('STAFF_NOT_FOUND', 'Staff member not found', 404);
+    const profile = await resolveStaffProfile(input.staffId, session);
+    const staffUserId = String(profile.userId);
     // Serialize concurrent cash submissions for the same staff member.
     const profileLock = await StaffProfile.updateOne(
       { _id: profile._id, __v: profile.__v },
@@ -381,7 +381,7 @@ export async function submitCash(
       );
     }
 
-    const available = await staffCashBalance(input.staffId, session);
+    const available = await staffCashBalance(staffUserId, session);
     if (input.amountPaise <= 0 || input.amountPaise > available)
       throw new AppError(
         'INSUFFICIENT_STAFF_CASH',
@@ -391,10 +391,17 @@ export async function submitCash(
         [{ availablePaise: available }],
       );
     const [record] = await CashSubmission.create(
-      [{ ...input, receivedBy: context.actorId, createdBy: context.actorId }],
+      [
+        {
+          ...input,
+          staffId: staffUserId,
+          receivedBy: context.actorId,
+          createdBy: context.actorId,
+        },
+      ],
       { session },
     );
-    const remaining = await staffCashBalance(input.staffId, session);
+    const remaining = await staffCashBalance(staffUserId, session);
     if (remaining < 0) {
       throw new AppError(
         'INSUFFICIENT_STAFF_CASH',
@@ -414,7 +421,7 @@ export async function submitCash(
       record.toObject(),
     );
     await outbox(session, 'CASH_SUBMITTED', 'CashSubmission', record._id, {
-      staffId: input.staffId,
+      staffId: staffUserId,
       amountPaise: input.amountPaise,
     });
     return record;

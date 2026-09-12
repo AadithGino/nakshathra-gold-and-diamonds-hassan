@@ -196,7 +196,8 @@ export async function listStaff(
   return buildOffsetPage(items, total, query.page, query.limit);
 }
 
-async function resolveStaffProfile(id: string, session?: ClientSession) {
+/** Accepts staff **User** id or **StaffProfile** id (same as GET /admin/staff/:id). */
+export async function resolveStaffProfile(id: string, session?: ClientSession) {
   if (!mongoose.Types.ObjectId.isValid(id)) {
     throw new AppError("STAFF_NOT_FOUND", "Staff member not found", 404);
   }

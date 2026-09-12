@@ -982,7 +982,13 @@ flowchart TD
 }
 ```
 
-Cannot submit more than staff's current cash held → `409 INSUFFICIENT_CASH_HELD`.
+| Field | Notes |
+| --- | --- |
+| `staffId` | Staff **User** id (`GET /admin/cash-held` → `staffId`) **or** **StaffProfile** id (`GET /admin/staff` → `_id`). Do not use customer/admin ids. |
+| `submissionDate` | ISO datetime (offset `+05:30` is fine) |
+
+Cannot submit more than staff's current cash held → `409 INSUFFICIENT_STAFF_CASH` (legacy docs may say `INSUFFICIENT_CASH_HELD`).  
+No matching staff profile → `404 STAFF_NOT_FOUND`.
 
 ---
 

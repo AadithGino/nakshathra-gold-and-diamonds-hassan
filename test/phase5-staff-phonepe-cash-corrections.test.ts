@@ -697,6 +697,40 @@ describe('Phase 5 — staff PhonePe, cash handover and corrections', () => {
       expect(await staffCashBalance(String(staff.userId))).toBe(0);
     });
 
+    it('accepts StaffProfile id as staffId on admin cash handover', async () => {
+      await seedAdmin();
+      const staff = await seedStaff(STAFF_PHONE, [...COLLECT_PERMISSIONS], 'NKS-S511B');
+      const plan = await seedCashPlan();
+      const customer = await seedVerifiedCustomer({ phone: '+917181500112' });
+      const enrollment = await enrollCustomer(
+        String(customer._id),
+        String(plan._id),
+        monthStartIst(),
+        'p5-cash-profile-id',
+      );
+      await collectCash(
+        String(staff.userId),
+        String(customer._id),
+        String(enrollment._id),
+        MIN,
+        new Date(),
+        'p5-cash-profile-id-pay',
+      );
+      const adminIssued = await login(ADMIN_PHONE, ADMIN_PASSWORD, { ip: '127.0.0.1' });
+
+      await request(app)
+        .post('/api/v1/admin/cash-submissions')
+        .set('Cookie', cookieHeader(adminIssued.tokens.access))
+        .send({
+          staffId: String(staff.profileId),
+          amountPaise: MIN,
+          submissionDate: new Date().toISOString(),
+          notes: 'handover via profile id',
+        })
+        .expect(201);
+      expect(await staffCashBalance(String(staff.userId))).toBe(0);
+    });
+
     it('rejects an over-handover and keeps two concurrent handovers from exceeding held cash', async () => {
       await seedAdmin();
       const staff = await seedStaff(STAFF_PHONE, [...COLLECT_PERMISSIONS], 'NKS-S512');
