@@ -869,3 +869,74 @@ export async function assertEnrollmentUnusedForCancel(enrollmentId: string, sess
   }
   return { enrollment, ledger };
 }
+
+export type MaturityCalendarFilters = {
+  from?: Date;
+  to?: Date;
+  status?: string[];
+  schemeType?: string;
+};
+
+export type MaturityCalendarEntry = {
+  enrollmentId: string;
+  enrollmentNumber: string;
+  customer: { id: string | null; name: string | null; phone: string | null };
+  schemePlan: { id: string; name: string | null; type: string | null };
+  schemeType: string;
+  status: string;
+  startDate: Date;
+  maturityDate: Date;
+  redemptionStartDate: Date | null;
+  redemptionEndDate: Date | null;
+  totalPaidPaise: number;
+  monthlyInstallmentPaise: number;
+  durationMonths: number;
+};
+
+const DEFAULT_MATURITY_CALENDAR_STATUSES = ['ACTIVE', 'MATURED'] as const;
+
+function mapMaturityCalendarEntry(enrollment: any): MaturityCalendarEntry {
+  const plan = enrollment.schemePlanId;
+  return {
+    enrollmentId: String(enrollment._id),
+    enrollmentNumber: enrollment.enrollmentNumber,
+    customer: customerPayload(enrollment),
+    schemePlan: {
+      ...planPayload(enrollment),
+      type: plan?.type ?? enrollment.schemeType ?? null,
+    },
+    schemeType: enrollment.schemeType,
+    status: enrollment.status,
+    startDate: enrollment.startDate,
+    maturityDate: enrollment.maturityDate,
+    redemptionStartDate: enrollment.redemptionStartDate ?? null,
+    redemptionEndDate: enrollment.redemptionEndDate ?? null,
+    totalPaidPaise: Number(enrollment.totalPaidPaise ?? 0),
+    monthlyInstallmentPaise: Number(enrollment.monthlyInstallmentPaise ?? 0),
+    durationMonths: Number(enrollment.durationMonths ?? 0),
+  };
+}
+
+export async function listMaturityCalendar(
+  filters: MaturityCalendarFilters = {},
+  options: { raw?: boolean } = {},
+) {
+  const from = filters.from ?? new Date();
+  const to = filters.to ?? new Date(from.getTime() + 366 * 86_400_000);
+  const statuses = filters.status?.length ? filters.status : [...DEFAULT_MATURITY_CALENDAR_STATUSES];
+  const match: Record<string, unknown> = {
+    maturityDate: mongoose.trusted({ $gte: from, $lte: to }),
+    status: mongoose.trusted({ $in: statuses }),
+  };
+  if (filters.schemeType) {
+    match.schemeType = filters.schemeType;
+  }
+  const rows = await populateEnrollmentQuery(match)
+    .sort({ maturityDate: 1, _id: 1 })
+    .lean();
+  return {
+    from,
+    to,
+    items: options.raw ? rows : rows.map(mapMaturityCalendarEntry),
+  };
+}

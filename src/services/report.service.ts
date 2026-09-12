@@ -31,7 +31,7 @@ import {
   buildInstallmentSchedule,
   summarizeInstallmentSchedule,
 } from './installment-schedule.service.js';
-import { countRedemptionReadyEnrollments } from './enrollment-collection.service.js';
+import { countRedemptionReadyEnrollments, listMaturityCalendar } from './enrollment-collection.service.js';
 import { countContributionPhaseCounts, contributionListFields, buildContributionStatusMap } from './contribution-status.service.js';
 
 const total = (rows: any[]) => rows[0]?.total ?? 0;
@@ -959,14 +959,8 @@ export async function staffPerformanceReport(from?: Date, to?: Date) {
 
 export async function maturityCalendar(from = new Date(), to?: Date) {
   const end = to ?? new Date(from.getTime() + 366 * 86_400_000);
-  return SchemeEnrollment.find({
-    maturityDate: mongoose.trusted({ $gte: from, $lte: end }),
-    status: mongoose.trusted({ $in: ['ACTIVE', 'MATURED'] }),
-  })
-    .populate({ path: 'customerId', populate: { path: 'userId', select: 'name phone' } })
-    .populate('schemePlanId', 'name type')
-    .sort({ maturityDate: 1 })
-    .lean();
+  const { items } = await listMaturityCalendar({ from, to: end }, { raw: true });
+  return items;
 }
 
 export async function allSchemesReport() {

@@ -52,6 +52,12 @@ export const openapi = {
       get: { summary: 'List enrollments', security: staffSecurity },
       post: { summary: 'Enroll a verified customer on a live CASH plan', security: staffSecurity },
     },
+    '/admin/maturity-calendar': {
+      get: {
+        summary: 'Maturity calendar — enrollments by maturity date range (Asia/Kolkata dates)',
+        security: staffSecurity,
+      },
+    },
     '/admin/payments/manual': {
       post: {
         summary:

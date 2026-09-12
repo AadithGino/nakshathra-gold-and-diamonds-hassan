@@ -18,6 +18,7 @@ import {
   getGoldRate,
   listOverdueCollection,
   listRedemptionReadyCollection,
+  getMaturityCalendar,
   listSchemePlans,
   prematureCloseEnrollment,
   previewPrematureClosure,
@@ -27,7 +28,12 @@ import {
   updateSchemePlan,
 } from "../../services/scheme-management.service.js";
 import { previewAdminContributionPayment } from "../../services/contribution-status.service.js";
-import { adminPaymentPreviewQuerySchema } from "../../validators/admin-scheme.validators.js";
+import {
+  adminPaymentPreviewQuerySchema,
+  maturityCalendarQuerySchema,
+} from "../../validators/admin-scheme.validators.js";
+import { AppError } from "../../utils/AppError.js";
+import { reportDate } from "../../utils/report-date.js";
 
 function optionalDate(value: unknown) {
   if (value == null || String(value).trim() === "") return undefined;
@@ -181,6 +187,33 @@ export async function listRedemptionReadyHandler(
     enrollmentFiltersFromQuery(request.query as Record<string, unknown>),
   );
   ok(response, result.items, result.meta);
+}
+
+export async function maturityCalendarHandler(
+  request: AuthenticatedRequest,
+  response: Response,
+) {
+  const query = maturityCalendarQuerySchema.parse(request.query);
+  const from = reportDate(query.from) ?? new Date();
+  const to = reportDate(query.to, true) ?? new Date(from.getTime() + 366 * 86_400_000);
+  if (from > to) {
+    throw new AppError(
+      "VALIDATION_ERROR",
+      "Maturity calendar start date must be before or equal to end date",
+      422,
+    );
+  }
+  const result = await getMaturityCalendar({
+    from,
+    to,
+    status: query.status ? [query.status] : undefined,
+    schemeType: query.schemeType,
+  });
+  ok(response, result.items, {
+    from: result.from.toISOString(),
+    to: result.to.toISOString(),
+    total: result.items.length,
+  });
 }
 
 export async function enrollmentPaymentPreviewHandler(

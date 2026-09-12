@@ -684,6 +684,7 @@ flowchart TD
 | GET    | `/admin/enrollments/due`                           | Due installments queue             |
 | GET    | `/admin/enrollments/overdue`                       | Overdue queue                      |
 | GET    | `/admin/enrollments/redemption-ready`              | Ready for maturity payout          |
+| GET    | `/admin/maturity-calendar`                         | Maturity calendar by date range    |
 | GET    | `/admin/enrollments/:id`                           | Full detail + schedule + payments  |
 | PATCH  | `/admin/enrollments/:id/status`                    | Manual status change (with reason) |
 | POST   | `/admin/enrollments/:id/cancel`                    | Cancel enrollment                  |
@@ -712,6 +713,51 @@ flowchart TD
 
 
 Overdue list also supports: `sort` (`oldest` | `newest` | `highestAmount`), `minDaysOverdue`, `maxDaysOverdue`.
+
+### Maturity calendar — `GET /admin/maturity-calendar`
+
+Dedicated calendar feed for the admin panel (prefer this over `GET /admin/reports/maturity` for UI).
+
+**Query params**
+
+| Param | Required | Description |
+| --- | --- | --- |
+| `from` | no | Start date (`YYYY-MM-DD` IST or ISO). Default: now |
+| `to` | no | End date (`YYYY-MM-DD` IST end-of-day or ISO). Default: `from` + 366 days |
+| `status` | no | Single status filter: `ACTIVE`, `MATURED`, `REDEEMED`, `CLOSED`. Default: `ACTIVE` + `MATURED` |
+| `schemeType` | no | `CASH` or `GOLD_WEIGHT` |
+
+**Response** `200`:
+
+```json
+{
+  "success": true,
+  "data": [
+    {
+      "enrollmentId": "67a1b2c3d4e5f6789012345e",
+      "enrollmentNumber": "NKS-2026-000042",
+      "customer": { "id": "67a1…", "name": "Meera Nair", "phone": "+919876543210" },
+      "schemePlan": { "id": "67a1…", "name": "Nakshathra Cash 11M", "type": "CASH" },
+      "schemeType": "CASH",
+      "status": "ACTIVE",
+      "startDate": "2026-01-01T00:00:00.000Z",
+      "maturityDate": "2026-12-01T00:00:00.000Z",
+      "redemptionStartDate": "2026-12-01T00:00:00.000Z",
+      "redemptionEndDate": "2027-01-31T00:00:00.000Z",
+      "totalPaidPaise": 1100000,
+      "monthlyInstallmentPaise": 100000,
+      "durationMonths": 11
+    }
+  ],
+  "meta": {
+    "from": "2026-12-01T00:00:00.000+05:30",
+    "to": "2026-12-31T23:59:59.999+05:30",
+    "total": 1
+  }
+}
+```
+
+**Related:** `GET /admin/enrollments/redemption-ready` for the payout queue; `GET /admin/dashboard` → `upcomingMaturities` for next 30 days (max 8).
 
 ### Create enrollment — `POST /admin/enrollments`
 
@@ -1967,6 +2013,7 @@ This audit compares **every admin-panel route registered in code** (`src/routes/
 | GET | `/admin/enrollments/due` | ✅ | §9 | N/A | B.3 |
 | GET | `/admin/enrollments/overdue` | ✅ | §9 | N/A | B.3 |
 | GET | `/admin/enrollments/redemption-ready` | ✅ | §9 | N/A | A.26 |
+| GET | `/admin/maturity-calendar` | ✅ | §9 | N/A | §9 |
 | GET | `/admin/enrollments/:id` | ✅ | §9 | N/A | A.25 |
 | PATCH | `/admin/enrollments/:id/status` | ✅ | §9 | §9 | B.4 |
 | POST | `/admin/enrollments/:id/cancel` | ✅ | §9 | §9 | B.4 |

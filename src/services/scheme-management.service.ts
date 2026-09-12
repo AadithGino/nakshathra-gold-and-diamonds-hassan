@@ -53,7 +53,9 @@ import {
   listEnrollmentsFiltered,
   listOverdueEnrollments,
   listRedemptionReadyEnrollments,
+  listMaturityCalendar,
   type EnrollmentListFilters,
+  type MaturityCalendarFilters,
 } from "./enrollment-collection.service.js";
 import {
   executeSchemeSettlement,
@@ -579,6 +581,10 @@ export function listRedemptionReadyCollection(
   filters: EnrollmentListFilters = {},
 ) {
   return listRedemptionReadyEnrollments(listQuery, filters);
+}
+
+export function getMaturityCalendar(filters: MaturityCalendarFilters = {}) {
+  return listMaturityCalendar(filters);
 }
 
 export function previewPrematureClosure(

@@ -24,6 +24,7 @@ import {
   listGoldRatesHandler,
   listOverdueEnrollmentsHandler,
   listRedemptionReadyHandler,
+  maturityCalendarHandler,
   listSchemePlansHandler,
   enrollmentPaymentPreviewHandler,
   prematureCloseHandler,
@@ -48,6 +49,7 @@ schemeAdminRouter.patch(
   validateBody(updateSchemePlanSchema),
   asyncHandler(updateSchemePlanHandler),
 );
+schemeAdminRouter.get("/maturity-calendar", asyncHandler(maturityCalendarHandler));
 schemeAdminRouter.post(
   "/enrollments",
   validateBody(createEnrollmentSchema),
