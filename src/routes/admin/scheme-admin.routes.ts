@@ -25,6 +25,7 @@ import {
   listOverdueEnrollmentsHandler,
   listRedemptionReadyHandler,
   listSchemePlansHandler,
+  enrollmentPaymentPreviewHandler,
   prematureCloseHandler,
   prematureClosurePreviewHandler,
   redemptionPreviewHandler,
@@ -58,6 +59,10 @@ schemeAdminRouter.get("/enrollments/due", asyncHandler(listDueEnrollmentsHandler
 schemeAdminRouter.get(
   "/enrollments/redemption-ready",
   asyncHandler(listRedemptionReadyHandler),
+);
+schemeAdminRouter.get(
+  "/enrollments/:id/payment-preview",
+  asyncHandler(enrollmentPaymentPreviewHandler),
 );
 schemeAdminRouter.get(
   "/enrollments/:id/premature-closure-preview",

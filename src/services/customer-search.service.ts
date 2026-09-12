@@ -14,6 +14,10 @@ import {
 } from '../utils/cursor-pagination.js';
 import { withEnrollmentContract } from '../utils/scheme-contract.js';
 import { getPaymentRules } from './scheme.service.js';
+import {
+  buildContributionStatus,
+  buildSchemeSummaryFromEnrollment,
+} from './contribution-status.service.js';
 
 const RECENT_PAYMENT_LIMIT = 25;
 
@@ -113,35 +117,10 @@ export async function getCustomerFinancialView(customerId: string) {
   const { profile, customer: safeCustomer } = operationalCustomer(customer as Record<string, any>);
   const active = schemes.find((scheme: any) => scheme.status === 'ACTIVE') ?? null;
   const activeEnrollment = active ? withEnrollmentContract(active) : null;
-  const schemeSummary = activeEnrollment
-    ? {
-        enrollmentId: String(activeEnrollment._id),
-        enrollmentNumber: activeEnrollment.enrollmentNumber,
-        schemeName: activeEnrollment.schemeName,
-        schemeType: activeEnrollment.schemeType,
-        status: activeEnrollment.status,
-        startDate: activeEnrollment.startDate,
-        maturityDate: activeEnrollment.maturityDate,
-        monthlyInstallmentPaise: activeEnrollment.monthlyInstallmentPaise,
-        totalContributedPaise: activeEnrollment.totalPaidPaise ?? 0,
-        durationMonths: activeEnrollment.durationMonths,
-        flexibleMonths: activeEnrollment.flexibleMonths,
-        capMonths: activeEnrollment.capMonths,
-      }
-    : null;
+  const schemeSummary = buildSchemeSummaryFromEnrollment(activeEnrollment);
 
-  let contribution = active
-    ? {
-        schemeMonth: null as number | null,
-        phase: null as string | null,
-        phaseLabel: null as string | null,
-        totalContributedPaise: Number(active.totalPaidPaise ?? 0),
-        capPaise: null as number | null,
-        paidThisMonthPaise: 0,
-        remainingPaise: null as number | null,
-        minimumPaymentPaise: Number(active.monthlyInstallmentPaise ?? 0),
-        capApplies: false,
-      }
+  let contribution = activeEnrollment
+    ? await buildContributionStatus(String(activeEnrollment._id))
     : null;
 
   const rules = await Promise.all(
@@ -153,19 +132,6 @@ export async function getCustomerFinancialView(customerId: string) {
             enforceLimit: false,
             requireGoldRate: false,
           });
-          if (active && String(scheme._id) === String(active._id) && contribution) {
-            contribution = {
-              schemeMonth: result.schemeMonth,
-              phase: result.phase,
-              phaseLabel: result.phaseLabel,
-              totalContributedPaise: Number(scheme.totalPaidPaise ?? 0),
-              capPaise: result.capPaise,
-              paidThisMonthPaise: result.paidThisMonthPaise,
-              remainingPaise: result.remainingPaise,
-              minimumPaymentPaise: result.minimumPaymentPaise,
-              capApplies: result.capApplies,
-            };
-          }
           return {
             schemeId: scheme._id,
             schemeMonth: result.schemeMonth,

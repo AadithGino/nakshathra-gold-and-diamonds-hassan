@@ -16,6 +16,7 @@ import {
   ReceiptCounter,
 } from '../models/index.js';
 import { activeGoldRate, getPaymentRules, goldWeightMg, resolveTargetSchemeMonth } from './scheme.service.js';
+import { buildContributionStatus } from './contribution-status.service.js';
 import { audit, outbox, type AuditContext } from './audit.service.js';
 import {
   claimEnrollmentSettlementLock,
@@ -269,6 +270,7 @@ export async function createManualPayment(
         paymentDate: input.paymentDate,
         status: 'SUCCESS',
         schemeMonth: rules.schemeMonth,
+        contribution: await buildContributionStatus(String(rules.enrollment._id)),
         ...gold,
       };
       await IdempotencyRecord.updateOne(

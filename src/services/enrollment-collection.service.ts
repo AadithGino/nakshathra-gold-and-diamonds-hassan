@@ -26,6 +26,11 @@ import {
   type InstallmentStatus,
 } from './installment-schedule.service.js';
 import {
+  buildContributionStatus,
+  buildContributionStatusMap,
+  contributionListFields,
+} from './contribution-status.service.js';
+import {
   aggregateEnrollmentLedger,
   aggregateEnrollmentLedgerFromRecords,
   type EnrollmentLedger,
@@ -602,7 +607,7 @@ export async function listOverdueEnrollments(
     ...filters,
     status: filters.status ?? 'ACTIVE',
   });
-  return scanEnrollments({
+  const result = await scanEnrollments({
     match,
     listQuery,
     sort: filters.sort ?? 'oldest',
@@ -619,6 +624,17 @@ export async function listOverdueEnrollments(
       return summary;
     },
   });
+  const contributionMap = await buildContributionStatusMap(
+    result.items.map((row) => String(row.enrollmentId)),
+    at,
+  );
+  return {
+    items: result.items.map((row) => ({
+      ...row,
+      contribution: contributionMap.get(String(row.enrollmentId)) ?? null,
+    })),
+    meta: result.meta,
+  };
 }
 
 export async function listDueEnrollments(
@@ -630,7 +646,7 @@ export async function listDueEnrollments(
     ...filters,
     status: filters.status ?? 'ACTIVE',
   });
-  return scanEnrollments({
+  const result = await scanEnrollments({
     match,
     listQuery,
     sort: filters.sort ?? 'oldest',
@@ -640,6 +656,17 @@ export async function listDueEnrollments(
       return rows.length ? rows : null;
     },
   });
+  const contributionMap = await buildContributionStatusMap(
+    result.items.map((row) => String(row.enrollmentId)),
+    at,
+  );
+  return {
+    items: result.items.map((row) => ({
+      ...row,
+      ...contributionListFields(contributionMap.get(String(row.enrollmentId))),
+    })),
+    meta: result.meta,
+  };
 }
 
 export async function listRedemptionReadyEnrollments(
@@ -648,7 +675,7 @@ export async function listRedemptionReadyEnrollments(
 ) {
   const now = new Date();
   const match = await buildRedemptionReadyMatch(filters, now);
-  return scanEnrollments({
+  const result = await scanEnrollments({
     match,
     listQuery,
     sort: 'oldest',
@@ -671,6 +698,17 @@ export async function listRedemptionReadyEnrollments(
       };
     },
   });
+  const contributionMap = await buildContributionStatusMap(
+    result.items.map((row) => String(row.enrollmentId)),
+    now,
+  );
+  return {
+    items: result.items.map((row) => ({
+      ...row,
+      contribution: contributionMap.get(String(row.enrollmentId)) ?? null,
+    })),
+    meta: result.meta,
+  };
 }
 
 export async function listEnrollmentsFiltered(
@@ -686,7 +724,7 @@ export async function listEnrollmentsFiltered(
   const match = await enrollmentMongoFilter(filters);
   if (needsScan) {
     const now = new Date();
-    return scanEnrollments({
+    const result = await scanEnrollments({
       match,
       listQuery: query,
       sort: 'newest',
@@ -719,6 +757,17 @@ export async function listEnrollmentsFiltered(
         };
       },
     });
+    const contributionMap = await buildContributionStatusMap(
+      result.items.map((item) => String(item._id)),
+      now,
+    );
+    return {
+      items: result.items.map((item) => ({
+        ...item,
+        contribution: contributionMap.get(String(item._id)) ?? null,
+      })),
+      meta: result.meta,
+    };
   }
 
   const sortField = 'createdAt';
@@ -750,13 +799,22 @@ export async function listEnrollmentsFiltered(
     ({ items, meta } = buildOffsetPage(rows, total, query.page, query.limit));
   }
   const payments = await paymentsByEnrollment(items.map((item) => item._id));
+  const contributionMap = await buildContributionStatusMap(
+    items.filter((item) => item.status === 'ACTIVE').map((item) => String(item._id)),
+  );
   return {
     items: items.map((item) => {
       const { schedule, summary } = getEnrollmentInstallmentState(
         item,
         payments.get(String(item._id)) ?? [],
       );
-      return { ...withEnrollmentContract(item), installmentSchedule: schedule, installmentSummary: summary };
+      const contribution = contributionMap.get(String(item._id)) ?? null;
+      return {
+        ...withEnrollmentContract(item),
+        installmentSchedule: schedule,
+        installmentSummary: summary,
+        contribution,
+      };
     }),
     meta,
   };

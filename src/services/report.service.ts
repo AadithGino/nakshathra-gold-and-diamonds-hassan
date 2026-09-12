@@ -32,6 +32,7 @@ import {
   summarizeInstallmentSchedule,
 } from './installment-schedule.service.js';
 import { countRedemptionReadyEnrollments } from './enrollment-collection.service.js';
+import { countContributionPhaseCounts, contributionListFields, buildContributionStatusMap } from './contribution-status.service.js';
 
 const total = (rows: any[]) => rows[0]?.total ?? 0;
 const PAYMENT_METHOD_ORDER = ['CASH', 'UPI', 'BANK', 'CARD'] as const;
@@ -183,6 +184,7 @@ export async function financialDashboard(filter: Record<string, unknown> = {}) {
     'cardCollectionPaise',
   ].reduce((sum, key) => sum + (methods[key] ?? 0), 0);
   const redemptionReadySchemes = await countRedemptionReadyEnrollments({}, now);
+  const contributionPhaseCounts = await countContributionPhaseCounts(now);
   const scheduleEnrollments = await SchemeEnrollment.find({ status: 'ACTIVE' })
     .populate({ path: 'customerId', populate: { path: 'userId', select: 'name phone' } })
     .populate('schemePlanId', 'name')
@@ -203,6 +205,10 @@ export async function financialDashboard(filter: Record<string, unknown> = {}) {
   }
   let dueInstallmentCount = 0;
   let overdueInstallmentCount = 0;
+  const contributionMap = await buildContributionStatusMap(
+    scheduleEnrollments.map((enrollment: any) => String(enrollment._id)),
+    now,
+  );
   const upcomingInstallments = scheduleEnrollments
     .map((enrollment: any) => {
       const schedule = buildInstallmentSchedule(
@@ -213,9 +219,11 @@ export async function financialDashboard(filter: Record<string, unknown> = {}) {
       const summary = summarizeInstallmentSchedule(schedule);
       dueInstallmentCount += summary.due;
       overdueInstallmentCount += summary.overdue;
+      const contribution = contributionMap.get(String(enrollment._id));
       return summary.nextInstallment
         ? {
             ...summary.nextInstallment,
+            ...contributionListFields(contribution),
             enrollmentId: enrollment._id,
             enrollmentNumber: enrollment.enrollmentNumber,
             customerId: enrollment.customerId,
@@ -248,6 +256,7 @@ export async function financialDashboard(filter: Record<string, unknown> = {}) {
     activeSchemes: schemeCounts.find((x: any) => x._id === 'ACTIVE')?.count ?? 0,
     maturedSchemes: schemeCounts.find((x: any) => x._id === 'MATURED')?.count ?? 0,
     redemptionReadySchemes,
+    contributionPhaseCounts,
     dueInstallmentCount,
     overdueInstallmentCount,
     upcomingInstallments,

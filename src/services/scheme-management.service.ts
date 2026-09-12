@@ -16,6 +16,10 @@ import {
   SchemeEnrollment,
   SchemePlan,
 } from "../models/index.js";
+import {
+  buildContributionStatus,
+  buildSchemeSummaryFromEnrollment,
+} from "./contribution-status.service.js";
 import { enrollmentDates } from "./scheme.service.js";
 import {
   buildInstallmentSchedule,
@@ -373,8 +377,11 @@ export async function getEnrollmentDetails(enrollmentId: string) {
   if (!enrollment)
     throw new AppError("SCHEME_NOT_FOUND", "Enrollment not found", 404);
   const installmentSchedule = buildInstallmentSchedule(enrollment, payments);
+  const contracted = withEnrollmentContract(enrollment);
+  const contribution = await buildContributionStatus(enrollmentId);
   return {
-    enrollment: withEnrollmentContract(enrollment),
+    enrollment: contracted,
+    contribution,
     payments,
     payouts,
     installmentSchedule,

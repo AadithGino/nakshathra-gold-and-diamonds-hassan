@@ -7,9 +7,9 @@ Hand this document to the frontend developer building the **owner/admin web pane
 **OpenAPI (runtime):** `GET /api/v1/openapi.json`  
 **Health:** `GET /health` · `GET /ready`
 
-**Live product:** CASH schemes only (11 contribution months, redemption in month 12). GOLD_WEIGHT routes exist but are dormant unless explicitly enabled on the server.
+**Live product:** CASH schemes only — see [§8 Nakshathra CASH contribution contract](#nakshathra-cash-contribution-contract-live-rules) (11 contribution months, pay on the 5th, flexible months 1–6, capped months 7–11). GOLD_WEIGHT routes exist but are dormant unless explicitly enabled on the server.
 
-**Example payloads:** sample request/response JSON in [Appendix A](#appendix-a--example-request--response-payloads). See [Appendix completeness audit](#appendix-completeness-audit-code-vs-doc-2026-09-11) for full code-vs-doc status.
+**Example payloads:** sample request/response JSON in [Appendix A](#appendix-a--example-request--response-payloads). See [Appendix completeness audit](#appendix-completeness-audit-code-vs-doc-2026-09-11) for full code-vs-doc status. **Planned contribution-rule APIs (Mark as paid caps):** [§26](#26-planned-api-updates--contribution-rules--mark-as-paid) — not implemented yet.
 
 **UI wireframes:** screen layouts, walk-in “Mark as paid” flow, and per-page field checklists → [ADMIN_PANEL_WIREFRAMES.md](./ADMIN_PANEL_WIREFRAMES.md).
 
@@ -559,6 +559,88 @@ Live plans are **CASH only**, **11 months** duration. Key create fields:
 }
 ```
 
+### Nakshathra CASH contribution contract (live rules)
+
+Every live CASH enrollment follows the **6 + 5 + redemption** contract enforced by the server. Do not hard-code payment limits in the admin UI — read them from enrollment detail, payment preview, or error payloads.
+
+#### Timeline
+
+
+| Calendar scheme month | Phase        | What the customer can pay                                      |
+| --------------------- | ------------ | ---------------------------------------------------------------- |
+| **1–6**               | **Flexible** | Any amount **≥ plan minimum** (`monthlyInstallmentPaise`). **No monthly upper cap.** Multiple payments in the same scheme month are allowed. |
+| **7–11**              | **Capped**   | Up to the **monthly cap** for that month (see formula below). Multiple partial payments are allowed until the cap is reached. |
+| **12**                | **Redemption** | No new contributions. Owner records maturity payout via `POST /admin/payouts`. |
+
+Contribution duration is **11 months**. Month **12** is the redemption / payout month only.
+
+#### Payment due date — 5th of each month
+
+Live plans use `paymentWindowType: "FIXED_DAY"` and `fixedPaymentDay: 5`:
+
+- Each scheme month’s installment is due on the **5th** of that calendar month (Asia/Kolkata).
+- Due / overdue queues (`GET /admin/enrollments/due`, `.../overdue`) and enrollment `installmentSchedule` expose `dueDate`, `paymentWindowStartDate`, and `paymentWindowEndDate` from this window.
+- When recording a manual payment, send `paymentDate` — the server assigns `schemeMonth` in IST. **Do not treat a client-supplied month as authoritative.**
+
+#### How the month 7–11 cap is calculated
+
+After month 6 completes, the server computes one cap for months 7–11:
+
+```
+monthlyCapPaise = floor(
+  sum of all SUCCESS payments in scheme months 1–6
+  ÷ count of those SUCCESS payments
+)
+```
+
+Important details:
+
+- Uses **successful payment count**, not “divide by 6”. If a customer made 8 payments across months 1–6, the cap is `total ÷ 8`.
+- Reversed or fully refunded payments are excluded from the calculation.
+- If there were **zero** successful payments in months 1–6, month 7+ payments are blocked with `FIRST_PERIOD_EMPTY` until at least one month 1–6 payment exists.
+- Each capped month (7–11) tracks `paidThisMonthPaise` vs `monthlyCapPaise`. Further payments in that month are allowed until `remainingCapPaise` reaches 0.
+
+**Example:** Customer pays ₹1,000 in month 1, ₹2,000 in month 2, and ₹3,000 once each in months 3–6 (6 successful payments, ₹12,000 total).  
+Cap from month 7 = ₹12,000 ÷ 6 = **₹2,000 per month** for months 7–11.
+
+#### Plan fields that define this contract
+
+Live CASH plans are created with these defaults (see create payload above):
+
+
+| Field | Live value | Meaning |
+| ----- | ---------- | ------- |
+| `durationMonths` | `11` | Contribution months |
+| `flexibleMonths` | `6` | Flexible phase length |
+| `capMonths` | `5` | Capped phase length (months 7–11) |
+| `capStrategy` | `AVERAGE_SUCCESSFUL_PAYMENT_FIRST_6` | Cap formula (see above) |
+| `paymentWindowType` | `FIXED_DAY` | Single due day per month |
+| `fixedPaymentDay` | `5` | Due on the **5th** |
+| `prematureClosureMinElapsedMonths` | `6` | **Separate rule:** earliest premature closure after 6 elapsed scheme months (not the payment cap) |
+
+`termsText` on the plan should summarise this for customers, e.g. `"Contribute for 11 months. Months 1–6 flexible; months 7–11 capped at your average payment."`
+
+#### What to show on admin payment / enrollment screens
+
+From `GET /admin/enrollments/:id`, payment list rows, or manual-payment validation errors, surface when available. **When [§26](#26-planned-api-updates--contribution-rules--mark-as-paid) is implemented**, use the **`contribution`** object and **`GET .../payment-preview`** — do not derive caps client-side.
+
+- Current `schemeMonth` and phase label (`Flexible` / `Capped` / `Redemption`)
+- `minimumPaymentPaise` — floor for the current month
+- `monthlyCapPaise` and `remainingCapPaise` — only in capped months 7–11
+- `paidInCurrentMonthPaise` — running total for the active scheme month
+- Server `reasonMessage` or error `message` when a payment is blocked
+
+#### Payment blocking errors (admin should display these)
+
+
+| Code | When |
+| ---- | ---- |
+| `PAYMENT_BELOW_MINIMUM` | Amount below plan minimum |
+| `PAYMENT_LIMIT_EXCEEDED` | Capped month: payment would exceed `remainingCapPaise` |
+| `INSTALLMENT_ALREADY_PAID` | Capped month: cap already fully paid for this scheme month |
+| `FIRST_PERIOD_EMPTY` | Month 7+ but no successful payments in months 1–6 to compute cap |
+| `SCHEME_MATURED` | Payment date falls after month 11 contribution window |
+
 ---
 
 
@@ -688,6 +770,10 @@ Allowed `status`: `ACTIVE`, `MATURED`, `REDEEMED`, `CLOSED`, `WITHDRAWN`, `CANCE
 
 
 ## 10. Payments & collections
+
+Payment limits follow the [Nakshathra CASH contribution contract](#nakshathra-cash-contribution-contract-live-rules): flexible months 1–6 (no cap), capped months 7–11 (average of month 1–6 payments), due on the **5th** of each month.
+
+**Planned:** rule-aware Mark as paid (preview + `remainingCapPaise`) — see [§26](#26-planned-api-updates--contribution-rules--mark-as-paid).
 
 
 
@@ -1414,10 +1500,15 @@ Query: `from`, `to` (ISO/YYYY-MM-DD). Requires `id` for `scheme-ledger` and `cus
 ## 21. Key business rules for UI
 
 
+Full payment-phase rules: [§8 Nakshathra CASH contribution contract](#nakshathra-cash-contribution-contract-live-rules).
+
+
 | Rule                                     | UI implication                                                        |
 | ---------------------------------------- | --------------------------------------------------------------------- |
-| CASH scheme, 11 months                   | Show phase labels: Flexible (1–6), Capped (7–11), Redemption (12)     |
-| One payment per scheme month             | Block duplicate pay; show `INSTALLMENT_ALREADY_PAID`                  |
+| CASH scheme, 11 months + month 12 payout | Show phase badges: **Flexible (1–6)**, **Capped (7–11)**, **Redemption (12)** |
+| Flexible months 1–6                      | No upper cap; allow multiple payments per month ≥ minimum             |
+| Capped months 7–11                       | Show `monthlyCapPaise` / `remainingCapPaise`; allow partial pays until cap met |
+| Due on 5th of each month                 | Due/overdue lists use server `dueDate`; plan `fixedPaymentDay: 5`     |
 | One active enrollment per customer       | Disable enroll button if active exists                                |
 | KYC may be required (`KYC_REQUIRED` env) | Show verify workflow before pay/enroll                                |
 | Amounts in paise                         | Format as ₹ in UI: `(paise / 100).toFixed(2)`                         |
@@ -1426,6 +1517,7 @@ Query: `from`, `to` (ISO/YYYY-MM-DD). Requires `id` for `scheme-ledger` and `cus
 | Staff permissions                        | Admin creates; staff app enforces — no admin UI needed per permission |
 | Corrections                              | Admin only approves; staff only submits                               |
 | Cash handover                            | Only admin records; reduces staff `cashHeldPaise`                     |
+| Premature closure                        | Earliest after **6 elapsed scheme months** (`prematureClosureMinElapsedMonths`); always call preview first |
 
 
 ---
@@ -1444,7 +1536,11 @@ Query: `from`, `to` (ISO/YYYY-MM-DD). Requires `id` for `scheme-ledger` and `cus
 | `CUSTOMER_ALREADY_ENROLLED`          | 409  | Show existing enrollment link      |
 | `KYC_VERIFICATION_REQUIRED`          | 409  | Prompt KYC verify                  |
 | `INSUFFICIENT_CASH_HELD`             | 409  | Reduce handover amount             |
-| `INSTALLMENT_ALREADY_PAID`           | 409  | Show paid badge                    |
+| `INSTALLMENT_ALREADY_PAID`           | 409  | Capped month fully paid; show paid badge     |
+| `PAYMENT_BELOW_MINIMUM`              | 422  | Amount below plan minimum                    |
+| `PAYMENT_LIMIT_EXCEEDED`             | 409  | Capped month: show `remainingCapPaise`       |
+| `FIRST_PERIOD_EMPTY`                 | 409  | No month 1–6 payments; cap cannot be computed |
+| `SCHEME_MATURED`                     | 409  | Outside 11-month contribution window         |
 | `DUPLICATE_RECORD` / duplicate phone | 409  | Show conflict message              |
 | `REPORT_NOT_FOUND`                   | 404  | Invalid report slug                |
 | `CUSTOMER_NOT_FOUND`                 | 404  | —                                  |
@@ -1553,6 +1649,249 @@ Local dev default port: **2020** → `http://localhost:2020/api/v1`
 8. Use `idempotencyKey` (UUID) on manual payment, payout, refund, premature close forms.
 9. Link related entities: customer ↔ enrollment ↔ payments ↔ payouts.
 10. Fetch `GET /api/v1/openapi.json` in dev tools for schema discovery.
+
+---
+
+
+
+## 26. Planned API updates — contribution rules & Mark as paid
+
+> **Status: PLANNED — not implemented in the backend yet.**  
+> This section is the contract for the next backend sprint. Once shipped, move each endpoint into the main sections above and add Appendix examples.
+
+### 26.1 Goal
+
+Give the **admin panel** the same rule-aware payment UX as staff:
+
+- Show **Flexible (months 1–6)** vs **Capped (months 7–11)** vs **Redemption (month 12)** on customer/enrollment screens.
+- On **Mark as paid / Record payment**, show **how much the customer can still pay this month** (`remainingCapPaise` in capped months).
+- Validate amount **before submit** via a payment-preview endpoint (same engine as staff).
+- Optional dashboard counts: how many active enrollments are in each phase.
+
+Backend will reuse existing `getPaymentRules()` / `previewContributionPayment()` — no duplicate business logic.
+
+### 26.2 Shared object — `contribution`
+
+Attached to enrollment/customer responses when the enrollment is **ACTIVE** (or optionally **MATURED** in redemption month). `null` if no active enrollment.
+
+```json
+{
+  "schemeMonth": 7,
+  "phase": "CAPPED",
+  "phaseLabel": "Capped contribution month",
+  "minimumPaymentPaise": 100000,
+  "monthlyCapPaise": 200000,
+  "capPaise": 200000,
+  "paidThisMonthPaise": 50000,
+  "remainingCapPaise": 150000,
+  "remainingPaise": 150000,
+  "capApplies": true,
+  "capStrategy": "AVERAGE_SUCCESSFUL_PAYMENT_FIRST_6",
+  "firstPeriodEmpty": false,
+  "computedAverageCapPaise": 200000,
+  "installmentAlreadyPaid": false,
+  "calculatedAt": "2026-09-12T06:00:00.000Z"
+}
+```
+
+| Field | UI label suggestion | Notes |
+| --- | --- | --- |
+| `phase` | Badge: Flexible / Capped / Redemption | `FLEXIBLE` \| `CAPPED` \| `REDEMPTION` \| `NOT_PAYABLE` |
+| `phaseLabel` | Human-readable badge text | From server |
+| `schemeMonth` | “Scheme month N” | 1–11 contribution; 12 = redemption |
+| `minimumPaymentPaise` | “Minimum per payment” | Plan floor |
+| `monthlyCapPaise` / `capPaise` | “Monthly cap” | **Same value** — both keys for staff parity |
+| `paidThisMonthPaise` | “Paid this month” | Sum of SUCCESS payments in current scheme month |
+| `remainingCapPaise` / `remainingPaise` | **“Can pay up to”** | **Key field for capped months.** `null` in flexible months (no upper cap) |
+| `capApplies` | Show cap UI | `true` only in capped months 7–11 |
+| `computedAverageCapPaise` | “Cap from month 7 will be ~₹X” | Useful in months 1–6 before cap applies |
+| `firstPeriodEmpty` | Warning banner | `true` → month 7+ blocked until month 1–6 has payments |
+| `installmentAlreadyPaid` | Disable pay button | Capped month fully paid (`remainingCapPaise === 0`) |
+
+**Flexible month UI:** show `minimumPaymentPaise` only; hide cap row or show “No monthly cap (flexible phase)”.
+
+**Capped month UI:** show `monthlyCapPaise`, `paidThisMonthPaise`, **`remainingCapPaise`** prominently.
+
+### 26.3 New API
+
+#### `GET /admin/enrollments/:id/payment-preview`
+
+Live validation while owner types amount on Mark as paid (mirrors `GET /staff/schemes/:id/payment-preview`).
+
+**Query params:**
+
+| Param | Required | Description |
+| --- | --- | --- |
+| `amountPaise` | yes | Amount being considered (positive int paise) |
+| `paymentDate` | no | ISO datetime; default `now` (IST scheme month) |
+| `schemeMonth` | no | **Omit in UI** — server derives from `paymentDate` |
+
+**Response** `200` — `data`:
+
+```json
+{
+  "enrollmentId": "67a1b2c3d4e5f6789012345e",
+  "schemeMonth": 7,
+  "phase": "CAPPED",
+  "phaseLabel": "Capped contribution month",
+  "requestedAmountPaise": 100000,
+  "minimumPaymentPaise": 100000,
+  "monthlyCapPaise": 200000,
+  "paidThisMonthPaise": 50000,
+  "remainingCapPaise": 150000,
+  "remainingPaise": 150000,
+  "capApplies": true,
+  "capStrategy": "AVERAGE_SUCCESSFUL_PAYMENT_FIRST_6",
+  "allowed": true,
+  "paymentAllowed": true,
+  "reasonCode": null,
+  "reasonMessage": null,
+  "calculatedAt": "2026-09-12T06:00:00.000Z",
+  "quoteExpiresAt": "2026-09-12T06:05:00.000Z"
+}
+```
+
+When blocked, `allowed: false`, `reasonCode` e.g. `PAYMENT_LIMIT_EXCEEDED`, `reasonMessage` explains limit — still returns cap fields so UI can show “₹1,500 remaining”.
+
+**Frontend usage:** debounce `GET .../payment-preview?amountPaise=` on amount field change (same pattern as staff app).
+
+---
+
+### 26.4 Updated APIs (existing routes)
+
+| Priority | Method | Path | Change |
+| --- | --- | --- | --- |
+| P0 | GET | `/admin/enrollments/:id` | Add top-level **`contribution`** |
+| P0 | GET | `/admin/customers/:id/enrollment` | Add **`contribution`** (same as enrollment detail) |
+| P0 | GET | `/admin/customers/:id` | Add **`contribution`** on active enrollment + **`schemeSummary`** (align with staff customer view) |
+| P0 | POST | `/admin/payments/manual` | Response: add **`contribution`** (state **after** payment) + keep `schemeMonth` |
+| P1 | GET | `/admin/enrollments` | Each active row: **`contribution.phase`**, **`contribution.schemeMonth`**, **`contribution.remainingCapPaise`** |
+| P1 | GET | `/admin/enrollments/due` | Each row: **`phase`**, **`remainingCapPaise`**, **`monthlyCapPaise`** |
+| P1 | GET | `/admin/enrollments/overdue` | Add enrollment-level **`contribution`** summary |
+| P1 | GET | `/admin/dashboard` | Add **`contributionPhaseCounts`**; enrich **`upcomingInstallments[]`** with phase + cap fields |
+| P2 | GET | `/admin/enrollments/redemption-ready` | Add **`contribution.phase: "REDEMPTION"`**, `schemeMonth: 12` |
+| P2 | GET | `/admin/customers` | Optional **`activeContribution.phase`** badge per row |
+| P2 | GET | `/admin/enrollments` | New filter **`contributionPhase=FLEXIBLE\|CAPPED\|REDEMPTION`** |
+
+**No change** to plan CRUD, settings, finance ops, refunds — static plan fields (`flexibleMonths`, `fixedPaymentDay`) stay on scheme plan objects.
+
+#### Dashboard addition — `contributionPhaseCounts`
+
+On `GET /admin/dashboard` → `data`:
+
+```json
+"contributionPhaseCounts": {
+  "flexible": 18,
+  "capped": 24,
+  "redemption": 2
+}
+```
+
+Counts are **active enrollments only**, based on current calendar scheme month vs policy (same logic as `contribution.phase`).
+
+#### Manual payment response (updated)
+
+`POST /admin/payments/manual` — existing fields plus:
+
+```json
+{
+  "paymentId": "...",
+  "receiptNumber": "NKS-2026-0000012",
+  "amountPaise": 100000,
+  "method": "CASH",
+  "paymentDate": "2026-09-12T06:00:00.000Z",
+  "status": "SUCCESS",
+  "schemeMonth": 7,
+  "contribution": {
+    "schemeMonth": 7,
+    "phase": "CAPPED",
+    "paidThisMonthPaise": 150000,
+    "remainingCapPaise": 50000,
+    "monthlyCapPaise": 200000
+  }
+}
+```
+
+Success screen should show **`schemeMonth`** and updated **`remainingCapPaise`** (“₹500 still payable this month” or “Month 7 fully paid”).
+
+---
+
+### 26.5 Mark as paid — admin API sequence (wireframe §3)
+
+```
+1. GET /admin/customers?search=          → pick customer
+2. GET /admin/customers/:id/enrollment   → show enrollment + contribution (phase, caps)
+3. [User types amount]
+4. GET /admin/enrollments/:id/payment-preview?amountPaise=&paymentDate=  → live validation
+5. POST /admin/payments/manual           → submit; show receipt + contribution after pay
+```
+
+**Do not send** `schemeMonth` in POST body unless debugging — server assigns from `paymentDate`.
+
+**UI blocks before submit:**
+
+| Condition | UI |
+| --- | --- |
+| `contribution.firstPeriodEmpty` | Banner: cannot pay month 7+ until month 1–6 has payments |
+| `contribution.phase === "CAPPED"` && `remainingCapPaise === 0` | Disable pay — month fully paid |
+| Preview `allowed === false` | Show `reasonMessage`; disable submit |
+| `kycStatus !== VERIFIED` (when `KYC_REQUIRED`) | Link to verify — existing 409 |
+
+---
+
+### 26.6 Screen → field mapping (frontend design)
+
+| Admin screen | API | New / updated fields to render |
+| --- | --- | --- |
+| Dashboard queues | `GET /admin/dashboard` | `contributionPhaseCounts.*`; `upcomingInstallments[].phase`, `remainingCapPaise` |
+| Mark as paid step 2 | `GET .../customers/:id/enrollment` | Full **`contribution`** card |
+| Mark as paid step 3 | `GET .../payment-preview` | `allowed`, `reasonMessage`, cap rows |
+| Mark as paid success | `POST .../payments/manual` | `schemeMonth`, `contribution.remainingCapPaise` |
+| Customer detail — Schemes tab | `GET /admin/customers/:id` | **`contribution`** badge on active scheme |
+| Enrollment detail header | `GET /admin/enrollments/:id` | **`contribution`** card above schedule |
+| Enrollment list | `GET /admin/enrollments` | Column: **`contribution.phase`**, **`contribution.schemeMonth`** |
+| Due / overdue queues | `GET .../due`, `.../overdue` | **`remainingCapPaise`**, **`phase`** per row |
+
+---
+
+### 26.7 Backend implementation notes (for devs)
+
+1. Extract **`buildContributionStatus(enrollmentId, at?)`** from existing `getPaymentRules(..., enforceLimit: false)` — single source of truth.
+2. **`previewContributionPayment`** already exists — wire admin route to it (same as staff handler).
+3. **`getCustomerDetails`** (admin) should call the same helper staff uses in `getCustomerFinancialView` — avoid admin/staff drift.
+4. Dashboard phase counts: batch `getPaymentRules` for active enrollments or derive from `schemeMonth(startDate, now)` + policy (prefer shared helper).
+5. OpenAPI: add schemas `ContributionStatus`, `ContributionPaymentPreview`, `ContributionPhaseCounts`.
+6. Tests: admin preview parity with staff; capped month `remainingCapPaise`; flexible month `remainingCapPaise === null`.
+
+### 26.8 Decisions locked (no open blockers)
+
+| Question | Decision |
+| --- | --- |
+| Separate admin preview route vs reuse staff URL? | **`GET /admin/enrollments/:id/payment-preview`** — admin auth only |
+| Field names: `capPaise` vs `monthlyCapPaise`? | Return **both** (same value) for staff doc parity |
+| `remainingCapPaise` vs `remainingPaise`? | Return **both** (same value) |
+| Client sends `schemeMonth` on manual pay? | **No** — display server-assigned month in response only |
+| PhonePe on admin Mark as paid? | **Out of scope** — manual methods only (`CASH`, `UPI`, `BANK`, `CARD`) per existing API |
+
+### 26.9 After implementation checklist
+
+- [ ] Move §26 endpoints into §9 Enrollments / §10 Payments / §4 Dashboard
+- [ ] Add Appendix **C.1–C.6** with example JSON for preview + contribution
+- [ ] Update [ADMIN_PANEL_WIREFRAMES.md](./ADMIN_PANEL_WIREFRAMES.md) §3.2 contribution card + preview call
+- [ ] Update §20 endpoint index (+1 new route)
+- [ ] Regenerate `GET /api/v1/openapi.json`
+
+---
+
+
+
+## 27. Related docs
+
+- [ADMIN_PANEL_FRONTEND_GUIDE.md](./ADMIN_PANEL_FRONTEND_GUIDE.md) — React folder structure, Redux Toolkit, RTK Query patterns
+- [FLUTTER_API_HANDOFF.md](./FLUTTER_API_HANDOFF.md) — staff/customer mobile apps (not admin, but shared auth conventions)
+- [FLUTTER_PAYMENT_API_FLOW.md](./FLUTTER_PAYMENT_API_FLOW.md) — PhonePe SDK flow for mobile
+- [FLUTTER_APP_FLOWS.md](./FLUTTER_APP_FLOWS.md) — staff/customer screen flows admin should understand
+- [PRODUCTION_GO_LIVE_CHECKLIST.md](./PRODUCTION_GO_LIVE_CHECKLIST.md) — deployment checklist
 
 ---
 
@@ -3943,13 +4282,3 @@ List returns `data` as array. Close sets `status`: `CLOSED`. Reopen sets `status
 **Liability movements** returns paginated rows with weight deltas per enrollment/payout event.
 
 ---
-
-
-## 26. Related docs
-
-- [ADMIN_PANEL_FRONTEND_GUIDE.md](./ADMIN_PANEL_FRONTEND_GUIDE.md) — React folder structure, Redux Toolkit, RTK Query patterns
-- [FLUTTER_API_HANDOFF.md](./FLUTTER_API_HANDOFF.md) — staff/customer mobile apps (not admin, but shared auth conventions)
-- [FLUTTER_PAYMENT_API_FLOW.md](./FLUTTER_PAYMENT_API_FLOW.md) — PhonePe SDK flow for mobile
-- [FLUTTER_APP_FLOWS.md](./FLUTTER_APP_FLOWS.md) — staff/customer screen flows admin should understand
-- [PRODUCTION_GO_LIVE_CHECKLIST.md](./PRODUCTION_GO_LIVE_CHECKLIST.md) — deployment checklist
-

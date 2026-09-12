@@ -26,6 +26,8 @@ import {
   updateGoldRate,
   updateSchemePlan,
 } from "../../services/scheme-management.service.js";
+import { previewAdminContributionPayment } from "../../services/contribution-status.service.js";
+import { adminPaymentPreviewQuerySchema } from "../../validators/admin-scheme.validators.js";
 
 function optionalDate(value: unknown) {
   if (value == null || String(value).trim() === "") return undefined;
@@ -179,6 +181,22 @@ export async function listRedemptionReadyHandler(
     enrollmentFiltersFromQuery(request.query as Record<string, unknown>),
   );
   ok(response, result.items, result.meta);
+}
+
+export async function enrollmentPaymentPreviewHandler(
+  request: AuthenticatedRequest,
+  response: Response,
+) {
+  const query = adminPaymentPreviewQuerySchema.parse(request.query);
+  ok(
+    response,
+    await previewAdminContributionPayment(
+      String(request.params.id),
+      query.amountPaise,
+      query.paymentDate ?? new Date(),
+      query.schemeMonth,
+    ),
+  );
 }
 
 export async function getEnrollmentHandler(

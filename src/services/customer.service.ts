@@ -40,6 +40,10 @@ import {
   initialKycFromAadhaar,
 } from "./customer-financial-policy.service.js";
 import { withEnrollmentContract } from "../utils/scheme-contract.js";
+import {
+  buildContributionStatus,
+  buildSchemeSummaryFromEnrollment,
+} from "./contribution-status.service.js";
 import { escapeRegex } from "../utils/regex.js";
 import type {
   CreateCustomerInput,
@@ -275,9 +279,17 @@ export async function getCustomerDetails(customerId: string) {
       signAadhaarUrls((customer as any).aadhaar),
     ]);
 
+  const mappedSchemes = schemes.map((scheme: any) => withEnrollmentContract(scheme));
+  const active = mappedSchemes.find((scheme: any) => scheme.status === "ACTIVE") ?? null;
+  const contribution = active ? await buildContributionStatus(String(active._id)) : null;
+  const schemeSummary = buildSchemeSummaryFromEnrollment(active);
+
   return {
     customer: { ...customer, aadhaar },
-    schemes: schemes.map((scheme: any) => withEnrollmentContract(scheme)),
+    schemes: mappedSchemes,
+    activeEnrollment: active,
+    schemeSummary,
+    contribution,
     payments,
     payouts,
     paymentIntents,
